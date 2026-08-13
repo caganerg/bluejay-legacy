@@ -75,13 +75,12 @@ export function extractTags(markdown: string): string[] {
 export function transformWikiLinksForDisplay(markdown: string): string {
   if (!markdown) return "";
 
-  // [[Note Title|Alias]] -> [Alias](#wikilink:slug)
-  // [[Note Title]] -> [Note Title](#wikilink:slug)
+  // [[Note Title|Alias]] -> [Alias](#wikilink:encodedTitle)
+  // [[Note Title]] -> [Note Title](#wikilink:encodedTitle)
   return markdown.replace(/\[\[(.*?)\]\]/g, (_, match) => {
     const parts = match.split("|");
     const title = parts[0].trim();
     const alias = parts[1] ? parts[1].trim() : title;
-    const slug = slugify(title);
-    return `[${alias}](#wikilink:${slug})`;
+    return `[${alias}](#wikilink:${encodeURIComponent(title)})`;
   });
 }

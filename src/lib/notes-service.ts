@@ -89,7 +89,14 @@ export async function getNoteById(id: string, userId = DEFAULT_USER_ID): Promise
   if (useDb) {
     try {
       const note = await prisma.note.findFirst({
-        where: { id, userId },
+        where: {
+          userId,
+          OR: [
+            { id },
+            { slug: id },
+            { title: { equals: id, mode: "insensitive" } },
+          ],
+        },
         include: {
           folder: true,
           tags: { include: { tag: true } },
@@ -111,7 +118,9 @@ export async function getNoteById(id: string, userId = DEFAULT_USER_ID): Promise
     }
   }
 
-  const note = memoryStore.notes.find((n) => (n.id === id || n.slug === id) && n.userId === userId);
+  const note = memoryStore.notes.find(
+    (n) => (n.id === id || n.slug === id || n.title.toLowerCase() === id.toLowerCase()) && n.userId === userId
+  );
   if (!note) return null;
 
   // Backlinks & Outgoing links hesapla
@@ -151,6 +160,42 @@ export async function getNoteById(id: string, userId = DEFAULT_USER_ID): Promise
     outgoingLinks,
     incomingLinks,
   };
+}
+
+export async function findOrCreateNoteByTitle(
+  title: string,
+  sourceNoteTitle?: string,
+  userId = DEFAULT_USER_ID
+): Promise<{ note: Note; created: boolean }> {
+  const cleanTitle = title.trim();
+  const targetSlug = slugify(cleanTitle);
+
+  // Try finding existing note by title or slug
+  const allNotes = await getAllNotes(userId);
+  const existing = allNotes.find(
+    (n) => n.slug === targetSlug || n.title.toLowerCase() === cleanTitle.toLowerCase()
+  );
+
+  if (existing) {
+    const fullNote = await getNoteById(existing.id, userId);
+    return { note: (fullNote || existing) as Note, created: false };
+  }
+
+  // Not found -> create new note
+  const initialContent = sourceNoteTitle
+    ? `# ${cleanTitle}\n\nBu not [[${sourceNoteTitle}]] üzerinden oluşturuldu.\n\n`
+    : `# ${cleanTitle}\n\n`;
+
+  const newNote = await createNote(
+    {
+      title: cleanTitle,
+      content: initialContent,
+    },
+    userId
+  );
+
+  const fullNewNote = await getNoteById(newNote.id, userId);
+  return { note: (fullNewNote || newNote) as Note, created: true };
 }
 
 export async function createNote(

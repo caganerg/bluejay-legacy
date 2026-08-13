@@ -193,15 +193,42 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
     }, 10);
   };
 
+  const [isNavigatingWikilink, setIsNavigatingWikilink] = React.useState(false);
+
   // Wikilink tıklamalarını yakalama (Preview modunda)
-  const handlePreviewClick = (e: React.MouseEvent) => {
+  const handlePreviewClick = async (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
     const link = target.closest("a");
-    if (link && link.getAttribute("href")?.startsWith("#wikilink:")) {
+    const href = link?.getAttribute("href");
+
+    if (link && href?.startsWith("#wikilink:")) {
       e.preventDefault();
-      const slug = link.getAttribute("href")?.replace("#wikilink:", "");
-      if (slug) {
-        router.push(`/notes/${slug}`);
+      const rawTargetTitle = decodeURIComponent(href.replace("#wikilink:", "")).trim();
+      if (!rawTargetTitle) return;
+
+      setIsNavigatingWikilink(true);
+      try {
+        const res = await fetch("/api/notes/resolve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: rawTargetTitle,
+            sourceNoteTitle: title,
+          }),
+        });
+
+        const data = await res.json();
+        if (data.note) {
+          if (data.created) {
+            window.dispatchEvent(new Event("vault-updated"));
+            if (onRefreshVault) onRefreshVault();
+          }
+          router.push(`/notes/${data.note.id}`);
+        }
+      } catch (err) {
+        console.error("Wikilink yönlendirme hatası:", err);
+      } finally {
+        setIsNavigatingWikilink(false);
       }
     }
   };
