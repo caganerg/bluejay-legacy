@@ -16,9 +16,12 @@ export function NewFolderDialog({ open, onOpenChange, onCreated }: NewFolderDial
   const [name, setName] = React.useState("");
   const [loading, setLoading] = React.useState(false);
 
-  React.useEffect(() => {
-    if (open) setName("");
-  }, [open]);
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      setName("");
+    }
+    onOpenChange(nextOpen);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,6 +36,7 @@ export function NewFolderDialog({ open, onOpenChange, onCreated }: NewFolderDial
       });
       const data = await res.json();
       if (data.folder) {
+        setName("");
         onOpenChange(false);
         onCreated();
       }
@@ -44,7 +48,7 @@ export function NewFolderDialog({ open, onOpenChange, onCreated }: NewFolderDial
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-slate-100">
@@ -69,7 +73,7 @@ export function NewFolderDialog({ open, onOpenChange, onCreated }: NewFolderDial
             <Button
               type="button"
               variant="secondary"
-              onClick={() => onOpenChange(false)}
+              onClick={() => handleOpenChange(false)}
               disabled={loading}
             >
               İptal

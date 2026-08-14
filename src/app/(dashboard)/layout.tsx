@@ -20,7 +20,7 @@ export default function DashboardLayout({
 
   const [notes, setNotes] = React.useState<Note[]>([]);
   const [folders, setFolders] = React.useState<Folder[]>([]);
-  const [loading, setLoading] = React.useState(true);
+  const [_loading, setLoading] = React.useState(true);
 
   // Modals state
   const [quickSwitcherOpen, setQuickSwitcherOpen] = React.useState(false);

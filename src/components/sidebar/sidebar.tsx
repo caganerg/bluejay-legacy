@@ -14,8 +14,6 @@ import {
   Pin,
   Trash2,
   FolderPlus,
-  BookOpen,
-  Hash,
   Sparkles,
   Info,
 } from "lucide-react";

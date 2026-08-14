@@ -47,11 +47,10 @@ export default function NoteDetailPage() {
 
         const noteData = await noteRes.json();
         setNote(noteData.note);
-        setError(null);
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("Not yükleme hatası:", err);
         if (isInitial) {
-          setError(err.message || "Not yüklenemedi");
+          setError(err instanceof Error ? err.message : "Not yüklenemedi");
         }
       } finally {
         if (isInitial) {

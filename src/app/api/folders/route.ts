@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAllFolders, createFolder } from "@/lib/notes-service";
+import { createFolderSchema } from "@/lib/validations/note";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 export async function GET() {
   try {
@@ -12,15 +14,30 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const { name, parentId } = body;
+  const rateLimit = checkRateLimit(req, 60, 60 * 1000);
+  if (!rateLimit.success) {
+    return NextResponse.json(
+      { error: "Çok fazla istek gönderildi. Lütfen bekleyin." },
+      { status: 429 }
+    );
+  }
 
-    if (!name || typeof name !== "string") {
-      return NextResponse.json({ error: "Klasör adı gereklidir" }, { status: 400 });
+  try {
+    const rawBody = await req.json();
+    const parseResult = createFolderSchema.safeParse(rawBody);
+
+    if (!parseResult.success) {
+      return NextResponse.json(
+        {
+          error: "Geçersiz klasör verisi",
+          details: parseResult.error.issues.map((e) => e.message),
+        },
+        { status: 400 }
+      );
     }
 
-    const folder = await createFolder(name.trim(), parentId || null);
+    const { name, parentId } = parseResult.data;
+    const folder = await createFolder(name, parentId || null);
     return NextResponse.json({ folder }, { status: 201 });
   } catch (error) {
     console.error("Klasör oluşturulamadı:", error);

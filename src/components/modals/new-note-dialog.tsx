@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Folder } from "@/types";
-import { Folder as FolderIcon, FilePlus } from "lucide-react";
+import { FilePlus } from "lucide-react";
 
 interface NewNoteDialogProps {
   open: boolean;
@@ -26,12 +26,13 @@ export function NewNoteDialog({
   const [folderId, setFolderId] = React.useState<string | null>(currentFolderId || null);
   const [loading, setLoading] = React.useState(false);
 
-  React.useEffect(() => {
-    if (open) {
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
       setTitle("");
       setFolderId(currentFolderId || null);
     }
-  }, [open, currentFolderId]);
+    onOpenChange(nextOpen);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,6 +51,7 @@ export function NewNoteDialog({
       });
       const data = await res.json();
       if (data.note) {
+        setTitle("");
         onOpenChange(false);
         onCreated(data.note.id);
       }
@@ -61,7 +63,7 @@ export function NewNoteDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-slate-100">
@@ -104,7 +106,7 @@ export function NewNoteDialog({
             <Button
               type="button"
               variant="secondary"
-              onClick={() => onOpenChange(false)}
+              onClick={() => handleOpenChange(false)}
               disabled={loading}
             >
               İptal

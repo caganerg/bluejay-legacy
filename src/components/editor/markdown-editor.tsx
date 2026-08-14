@@ -71,7 +71,7 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
       content: note.content,
       folderId: note.folderId || null,
     };
-  }, [note.id]);
+  }, [note.id, note.title, note.content, note.folderId]);
 
   // Debounced Auto-Save (only if actually changed)
   React.useEffect(() => {
@@ -193,7 +193,7 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
     }, 10);
   };
 
-  const [isNavigatingWikilink, setIsNavigatingWikilink] = React.useState(false);
+  const [_isNavigatingWikilink, setIsNavigatingWikilink] = React.useState(false);
 
   // Wikilink tıklamalarını yakalama (Preview modunda)
   const handlePreviewClick = async (e: React.MouseEvent) => {
@@ -479,7 +479,7 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     components={{
-                      a: ({ node, ...props }) => {
+                      a: ({ node: _node, ...props }) => {
                         const href = props.href || "";
                         if (href.startsWith("#wikilink:")) {
                           return (

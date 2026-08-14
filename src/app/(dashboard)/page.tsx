@@ -7,27 +7,24 @@ import {
   FilePlus,
   Network,
   Search,
-  BookOpen,
   Sparkles,
   Link2,
   Clock,
   Pin,
   FileText,
   ArrowRight,
-  Folder as FolderIcon,
   Trash2,
-  Info,
   ShieldCheck,
 } from "lucide-react";
-import { Note, Folder } from "@/types";
+import { Note } from "@/types";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
 
 export default function HomePage() {
   const router = useRouter();
   const [notes, setNotes] = React.useState<Note[]>([]);
-  const [folders, setFolders] = React.useState<Folder[]>([]);
-  const [loading, setLoading] = React.useState(true);
+  const [_folders, setFolders] = React.useState<unknown[]>([]);
+  const [_loading, setLoading] = React.useState(true);
   const [clearing, setClearing] = React.useState(false);
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
 

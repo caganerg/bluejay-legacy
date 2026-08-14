@@ -1,11 +1,13 @@
 "use client";
 
 import * as React from "react";
+
 import { useRouter } from "next/navigation";
 import { Command } from "cmdk";
-import { Search, FileText, Plus, Hash, Folder as FolderIcon, Network, Info } from "lucide-react";
+import { Search, FileText, Plus, Folder as FolderIcon, Network, Info } from "lucide-react";
 import { SearchResult } from "@/types";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+
 
 interface QuickSwitcherProps {
   open: boolean;

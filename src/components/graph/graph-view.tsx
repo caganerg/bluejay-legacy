@@ -12,8 +12,8 @@ import {
   SimulationNodeDatum,
   SimulationLinkDatum,
 } from "d3-force";
-import { GraphData, GraphNode, GraphLink } from "@/types/graph";
-import { Search, ZoomIn, ZoomOut, RotateCcw, Sparkles, Filter, Info } from "lucide-react";
+import { GraphData, GraphNode } from "@/types/graph";
+import { Search, ZoomIn, ZoomOut, RotateCcw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -56,53 +56,6 @@ export function GraphView({ data, activeNoteId, onNodeClick }: GraphViewProps) {
   const isDraggingCanvas = React.useRef(false);
   const draggedNode = React.useRef<SimNode | null>(null);
   const dragStartPos = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-
-  // Initialize simulation data
-  React.useEffect(() => {
-    if (!data.nodes || data.nodes.length === 0) return;
-
-    // Deep copy nodes and links
-    const simNodes: SimNode[] = data.nodes.map((n) => ({ ...n }));
-    const nodeMap = new Map<string, SimNode>(simNodes.map((n) => [n.id, n]));
-
-    const simLinks: SimLink[] = data.links
-      .map((l) => ({
-        source: typeof l.source === "string" ? l.source : (l.source as GraphNode).id,
-        target: typeof l.target === "string" ? l.target : (l.target as GraphNode).id,
-        isPhantom: l.isPhantom,
-      }))
-      .filter((l) => nodeMap.has(l.source as string) && nodeMap.has(l.target as string));
-
-    nodesRef.current = simNodes;
-    linksRef.current = simLinks;
-
-    const width = containerRef.current?.clientWidth || 800;
-    const height = containerRef.current?.clientHeight || 600;
-
-    if (simRef.current) simRef.current.stop();
-
-    const simulation = forceSimulation<SimNode>(simNodes)
-      .force(
-        "link",
-        forceLink<SimNode, SimLink>(simLinks)
-          .id((d) => d.id)
-          .distance(70)
-      )
-      .force("charge", forceManyBody().strength(-180))
-      .force("center", forceCenter(0, 0))
-      .force("collide", forceCollide().radius((d: any) => ((d.val || 1) * 6 + 12)))
-      .alphaDecay(0.02);
-
-    simRef.current = simulation;
-
-    simulation.on("tick", () => {
-      renderCanvas();
-    });
-
-    return () => {
-      simulation.stop();
-    };
-  }, [data]);
 
   // Render Canvas Loop
   const renderCanvas = React.useCallback(() => {
@@ -241,6 +194,50 @@ export function GraphView({ data, activeNoteId, onNodeClick }: GraphViewProps) {
     ctx.restore();
   }, [panOffset, zoomLevel, hoveredNode, activeNoteId, searchQuery]);
 
+  // Initialize simulation data
+  React.useEffect(() => {
+    if (!data.nodes || data.nodes.length === 0) return;
+
+    // Deep copy nodes and links
+    const simNodes: SimNode[] = data.nodes.map((n) => ({ ...n }));
+    const nodeMap = new Map<string, SimNode>(simNodes.map((n) => [n.id, n]));
+
+    const simLinks: SimLink[] = data.links
+      .map((l) => ({
+        source: typeof l.source === "string" ? l.source : (l.source as GraphNode).id,
+        target: typeof l.target === "string" ? l.target : (l.target as GraphNode).id,
+        isPhantom: l.isPhantom,
+      }))
+      .filter((l) => nodeMap.has(l.source as string) && nodeMap.has(l.target as string));
+
+    nodesRef.current = simNodes;
+    linksRef.current = simLinks;
+
+    if (simRef.current) simRef.current.stop();
+
+    const simulation = forceSimulation<SimNode>(simNodes)
+      .force(
+        "link",
+        forceLink<SimNode, SimLink>(simLinks)
+          .id((d) => d.id)
+          .distance(70)
+      )
+      .force("charge", forceManyBody().strength(-180))
+      .force("center", forceCenter(0, 0))
+      .force("collide", forceCollide<SimNode>().radius((d) => ((d.val || 1) * 6 + 12)))
+      .alphaDecay(0.02);
+
+    simRef.current = simulation;
+
+    simulation.on("tick", () => {
+      renderCanvas();
+    });
+
+    return () => {
+      simulation.stop();
+    };
+  }, [data, renderCanvas]);
+
   // Window resize handler
   React.useEffect(() => {
     const handleResize = () => {
@@ -315,7 +312,7 @@ export function GraphView({ data, activeNoteId, onNodeClick }: GraphViewProps) {
     }
   };
 
-  const handleMouseUp = (e: React.MouseEvent) => {
+  const handleMouseUp = () => {
     if (draggedNode.current) {
       draggedNode.current.fx = null;
       draggedNode.current.fy = null;
@@ -331,22 +328,7 @@ export function GraphView({ data, activeNoteId, onNodeClick }: GraphViewProps) {
       if (onNodeClick) {
         onNodeClick(node.id);
       } else {
-        if (node.isPhantom) {
-          // Create phantom note prompt
-          if (confirm(`"${node.title}" adında yeni bir not oluşturulsun mu?`)) {
-            fetch("/api/notes", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ title: node.title, content: `# ${node.title}\n\n` }),
-            })
-              .then((res) => res.json())
-              .then((res) => {
-                if (res.note) router.push(`/notes/${res.note.id}`);
-              });
-          }
-        } else {
-          router.push(`/notes/${node.id}`);
-        }
+        router.push(`/notes/${node.id}`);
       }
     }
   };
@@ -355,100 +337,118 @@ export function GraphView({ data, activeNoteId, onNodeClick }: GraphViewProps) {
     e.preventDefault();
     const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
     setZoomLevel((prev) => Math.min(3, Math.max(0.3, prev * zoomFactor)));
-    renderCanvas();
   };
 
-  const resetView = () => {
+  const handleResetView = () => {
     setZoomLevel(1);
     setPanOffset({ x: 0, y: 0 });
     if (simRef.current) simRef.current.alpha(0.3).restart();
   };
 
   return (
-    <div ref={containerRef} className="relative w-full h-full bg-[#070a12] overflow-hidden select-none">
-      {/* Canvas */}
-      <canvas
-        ref={canvasRef}
+    <div className="flex flex-col h-full w-full bg-[#070a13] relative overflow-hidden select-none">
+      {/* Üst Kontrol ve Filtre Çubuğu */}
+      <div className="absolute top-4 left-4 right-4 z-20 flex flex-wrap items-center justify-between gap-3 pointer-events-none">
+        <div className="flex items-center gap-2 pointer-events-auto bg-slate-900/90 p-1.5 rounded-xl border border-slate-800/80 shadow-2xl backdrop-blur-md">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+            <Input
+              type="text"
+              placeholder="Grafikte ara..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="h-8 w-48 sm:w-64 pl-8 bg-slate-950/60 text-xs border-slate-800 text-slate-200 placeholder:text-slate-500 rounded-lg"
+            />
+          </div>
+          {searchQuery && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSearchQuery("")}
+              className="h-8 px-2 text-xs text-slate-400 hover:text-white"
+            >
+              Temizle
+            </Button>
+          )}
+        </div>
+
+        {/* Yakınlaştırma & Sıfırlama Butonları */}
+        <div className="flex items-center gap-1.5 pointer-events-auto bg-slate-900/90 p-1.5 rounded-xl border border-slate-800/80 shadow-2xl backdrop-blur-md">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setZoomLevel((z) => Math.min(3, z * 1.2))}
+            title="Yakınlaştır"
+            className="h-8 w-8 text-slate-300 hover:text-white hover:bg-slate-800"
+          >
+            <ZoomIn className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setZoomLevel((z) => Math.max(0.3, z / 1.2))}
+            title="Uzaklaştır"
+            className="h-8 w-8 text-slate-300 hover:text-white hover:bg-slate-800"
+          >
+            <ZoomOut className="h-4 w-4" />
+          </Button>
+          <div className="w-[1px] h-4 bg-slate-800 mx-0.5" />
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleResetView}
+            title="Görünümü Sıfırla"
+            className="h-8 w-8 text-slate-300 hover:text-white hover:bg-slate-800"
+          >
+            <RotateCcw className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Canvas Alanı */}
+      <div
+        ref={containerRef}
+        className="flex-1 w-full h-full cursor-grab active:cursor-grabbing relative"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onClick={handleClick}
         onWheel={handleWheel}
-        className="w-full h-full cursor-grab active:cursor-grabbing block"
-      />
-
-      {/* Üst Arama ve Kontrol Barı */}
-      <div className="absolute top-4 left-4 z-10 flex items-center gap-2">
-        <div className="relative w-64">
-          <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-500" />
-          <Input
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setTimeout(renderCanvas, 10);
-            }}
-            placeholder="Grafikte not ara..."
-            className="pl-8 h-9 text-xs bg-slate-900/80 border-slate-800 text-slate-200 placeholder:text-slate-500 backdrop-blur-md"
-          />
-        </div>
+      >
+        <canvas ref={canvasRef} className="w-full h-full block" />
       </div>
 
-      {/* Sağ Üst: Zoom & Pan Kontrolleri */}
-      <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5 bg-slate-900/80 p-1 rounded-lg border border-slate-800 backdrop-blur-md">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => {
-            setZoomLevel((z) => Math.min(3, z * 1.2));
-            setTimeout(renderCanvas, 10);
-          }}
-          className="h-7 w-7 text-slate-400 hover:text-white"
-          title="Yakınlaştır"
-        >
-          <ZoomIn className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => {
-            setZoomLevel((z) => Math.max(0.3, z / 1.2));
-            setTimeout(renderCanvas, 10);
-          }}
-          className="h-7 w-7 text-slate-400 hover:text-white"
-          title="Uzaklaştır"
-        >
-          <ZoomOut className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={resetView}
-          className="h-7 w-7 text-slate-400 hover:text-white"
-          title="Görünümü Sıfırla"
-        >
-          <RotateCcw className="h-3.5 w-3.5" />
-        </Button>
-      </div>
+      {/* Alt Bilgi / Lejant Paneli */}
+      <div className="absolute bottom-4 left-4 z-20 pointer-events-auto">
+        <div className="bg-slate-900/90 border border-slate-800/80 p-3 rounded-xl shadow-2xl backdrop-blur-md text-[11px] text-slate-400 space-y-2 max-w-xs">
+          <div className="flex items-center justify-between font-semibold text-slate-200 border-b border-slate-800 pb-1">
+            <span className="flex items-center gap-1.5">
+              <Sparkles className="h-3.5 w-3.5 text-indigo-400" /> Bilgi Grafiği (D3)
+            </span>
+            <span className="text-[10px] text-slate-500 font-mono">
+              {data.nodes.length} Not • {data.links.length} Bağlantı
+            </span>
+          </div>
 
-      {/* Sol Alt: Bilgi ve Lejant */}
-      <div className="absolute bottom-4 left-4 z-10 bg-slate-900/80 p-3 rounded-xl border border-slate-800 backdrop-blur-md text-xs space-y-2 max-w-xs pointer-events-none">
-        <div className="flex items-center gap-2 font-semibold text-slate-300">
-          <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
-          <span>Force-Directed Graph</span>
-        </div>
-        <div className="flex items-center gap-4 text-[11px] text-slate-400">
-          <div className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-indigo-500 inline-block" />
-            <span>Mevcut Not</span>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 pt-0.5">
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 ring-2 ring-indigo-500/20" />
+              <span>Normal Not</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 ring-2 ring-amber-500/20" />
+              <span>Hayalet Not</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-sky-400 ring-2 ring-sky-400/20" />
+              <span>Aktif Not</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-pink-500 ring-2 ring-pink-500/20" />
+              <span>Arama Eşleşmesi</span>
+            </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-amber-500 inline-block" />
-            <span>Phantom (Bekleyen)</span>
-          </div>
         </div>
-        <p className="text-[10px] text-slate-500">
-          Düğümleri sürükleyebilir, tekerlekle yakınlaştırabilir ve nota gitmek için tıklayabilirsiniz.
-        </p>
       </div>
     </div>
   );
