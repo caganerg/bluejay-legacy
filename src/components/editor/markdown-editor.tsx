@@ -239,7 +239,7 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
   return (
     <div className="flex-1 flex flex-col h-screen overflow-hidden bg-[#0a0d16]">
       {/* Üst Araç Çubuğu */}
-      <header className="h-13 border-b border-slate-800/80 px-6 flex items-center justify-between shrink-0 bg-[#0c101b]/80 backdrop-blur-md">
+      <header className="relative h-13 border-b border-slate-800/80 px-6 flex items-center justify-between shrink-0 bg-[#0c101b]/80 backdrop-blur-md">
         {/* Sol: Klasör Seçici ve Durum */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5 text-xs text-slate-400">
@@ -281,7 +281,7 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
         </div>
 
         {/* Orta: Markdown Format Araçları */}
-        <div className="hidden md:flex items-center gap-1 bg-slate-900/60 p-1 rounded-lg border border-slate-800">
+        <div className="absolute left-1/2 -translate-x-1/2 hidden md:flex items-center gap-1 bg-slate-900/60 p-1 rounded-lg border border-slate-800 shadow-sm">
           <button
             onClick={() => insertFormatting("**")}
             title="Kalın (Bold)"

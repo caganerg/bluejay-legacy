@@ -26,21 +26,30 @@ export default function NoteDetailPage() {
       }
       try {
         const [noteRes, foldersRes] = await Promise.all([
-          fetch(`/api/notes/${noteId}`),
+          fetch(`/api/notes/${encodeURIComponent(noteId)}`),
           fetch("/api/folders"),
         ]);
 
+        if (foldersRes.ok) {
+          const foldersData = await foldersRes.json();
+          setFolders(foldersData.folders || []);
+        }
+
         if (!noteRes.ok) {
-          throw new Error("Not bulunamadı");
+          if (noteRes.status === 404) {
+            setNote(null);
+            setError("Not bulunamadı");
+            return;
+          }
+          const errData = await noteRes.json().catch(() => ({}));
+          throw new Error(errData.error || "Not yüklenemedi");
         }
 
         const noteData = await noteRes.json();
-        const foldersData = await foldersRes.json();
-
         setNote(noteData.note);
-        setFolders(foldersData.folders || []);
+        setError(null);
       } catch (err: any) {
-        console.error(err);
+        console.error("Not yükleme hatası:", err);
         if (isInitial) {
           setError(err.message || "Not yüklenemedi");
         }

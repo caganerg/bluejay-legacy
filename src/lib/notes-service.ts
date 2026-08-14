@@ -85,6 +85,14 @@ export async function getAllNotes(userId = DEFAULT_USER_ID): Promise<Note[]> {
 }
 
 export async function getNoteById(id: string, userId = DEFAULT_USER_ID): Promise<Note | null> {
+  let decodedId = id;
+  try {
+    decodedId = decodeURIComponent(id);
+  } catch {
+    decodedId = id;
+  }
+  const slugId = slugify(decodedId);
+
   const useDb = await checkPrisma();
   if (useDb) {
     try {
@@ -93,8 +101,12 @@ export async function getNoteById(id: string, userId = DEFAULT_USER_ID): Promise
           userId,
           OR: [
             { id },
+            { id: decodedId },
             { slug: id },
+            { slug: decodedId },
+            { slug: slugId },
             { title: { equals: id, mode: "insensitive" } },
+            { title: { equals: decodedId, mode: "insensitive" } },
           ],
         },
         include: {
@@ -119,7 +131,15 @@ export async function getNoteById(id: string, userId = DEFAULT_USER_ID): Promise
   }
 
   const note = memoryStore.notes.find(
-    (n) => (n.id === id || n.slug === id || n.title.toLowerCase() === id.toLowerCase()) && n.userId === userId
+    (n) =>
+      (n.id === id ||
+        n.id === decodedId ||
+        n.slug === id ||
+        n.slug === decodedId ||
+        n.slug === slugId ||
+        n.title.toLowerCase() === id.toLowerCase() ||
+        n.title.toLowerCase() === decodedId.toLowerCase()) &&
+      n.userId === userId
   );
   if (!note) return null;
 
