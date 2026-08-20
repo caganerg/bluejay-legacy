@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Folder } from "@/types";
+import { flattenFoldersAsTree } from "@/lib/utils";
 import { FilePlus } from "lucide-react";
 
 interface NewNoteDialogProps {
@@ -93,9 +94,10 @@ export function NewNoteDialog({
                 className="flex h-9 w-full rounded-lg border border-slate-700/80 bg-slate-900/70 px-3 py-1 text-sm text-slate-200 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500"
               >
                 <option value="">Klasörsüz (Ana Dizin)</option>
-                {folders.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.name}
+                {flattenFoldersAsTree(folders).map(({ folder, depth }) => (
+                  <option key={folder.id} value={folder.id}>
+                    {"  ".repeat(depth)}
+                    {folder.name}
                   </option>
                 ))}
               </select>

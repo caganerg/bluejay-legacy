@@ -41,6 +41,16 @@ export const createFolderSchema = z.object({
   parentId: z.string().nullable().optional(),
 });
 
+export const updateFolderSchema = z.object({
+  name: z
+    .string()
+    .min(1, "Klasör adı boş olamaz")
+    .max(100, "Klasör adı en fazla 100 karakter olabilir")
+    .trim()
+    .optional(),
+  parentId: z.string().nullable().optional(),
+});
+
 export const searchQuerySchema = z.object({
   q: z.string().max(200, "Arama sorgusu en fazla 200 karakter olabilir").default(""),
 });

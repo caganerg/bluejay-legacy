@@ -57,6 +57,48 @@ async function checkPrisma(): Promise<boolean> {
 // NOT SERVİS FONKSİYONLARI
 // ----------------------------------------------------
 
+// Notlar `[userId, slug]` üzerinde benzersiz olmak zorunda (bkz. prisma/schema.prisma).
+// Aynı başlıkla (veya aynı slug'a dönüşen farklı başlıklarla) not oluşturmak/yeniden
+// adlandırmak veritabanında çakışmaya ve notun sessizce kaybolmasına yol açabildiğinden,
+// slug'ı önceden -2, -3... ekleyerek benzersizleştiriyoruz.
+async function getExistingSlugs(userId: string, excludeNoteId?: string): Promise<Set<string>> {
+  const useDb = await checkPrisma();
+  if (useDb) {
+    try {
+      const notes = await prisma.note.findMany({
+        where: excludeNoteId ? { userId, id: { not: excludeNoteId } } : { userId },
+        select: { slug: true },
+      });
+      return new Set(notes.map((n) => n.slug));
+    } catch {
+      // fallback
+    }
+  }
+
+  return new Set(
+    memoryStore.notes
+      .filter((n) => n.userId === userId && n.id !== excludeNoteId)
+      .map((n) => n.slug)
+  );
+}
+
+async function generateUniqueSlug(
+  title: string,
+  userId: string,
+  excludeNoteId?: string
+): Promise<string> {
+  const base = slugify(title) || "not";
+  const existingSlugs = await getExistingSlugs(userId, excludeNoteId);
+
+  if (!existingSlugs.has(base)) return base;
+
+  let counter = 2;
+  while (existingSlugs.has(`${base}-${counter}`)) {
+    counter++;
+  }
+  return `${base}-${counter}`;
+}
+
 export async function getAllNotes(userId = DEFAULT_USER_ID): Promise<Note[]> {
   const useDb = await checkPrisma();
   if (useDb) {
@@ -223,7 +265,7 @@ export async function createNote(
   userId = DEFAULT_USER_ID
 ): Promise<Note> {
   const title = data.title.trim() || "Başlıksız Not";
-  const slug = slugify(title) || `note-${Date.now()}`;
+  const slug = await generateUniqueSlug(title, userId);
   const content = data.content || "";
 
   const useDb = await checkPrisma();
@@ -273,6 +315,9 @@ export async function updateNote(
   data: { title?: string; content?: string; folderId?: string | null; isPinned?: boolean; isArchived?: boolean },
   userId = DEFAULT_USER_ID
 ): Promise<Note | null> {
+  const newSlug =
+    data.title !== undefined ? await generateUniqueSlug(data.title.trim(), userId, id) : undefined;
+
   const useDb = await checkPrisma();
   if (useDb) {
     try {
@@ -281,7 +326,7 @@ export async function updateNote(
       };
       if (data.title !== undefined) {
         updateData.title = data.title.trim();
-        updateData.slug = slugify(data.title.trim());
+        updateData.slug = newSlug;
       }
       if (data.content !== undefined) updateData.content = data.content;
       if (data.folderId !== undefined) updateData.folderId = data.folderId;
@@ -312,7 +357,7 @@ export async function updateNote(
   const updatedNote: Note = {
     ...note,
     title: data.title !== undefined ? data.title.trim() : note.title,
-    slug: data.title !== undefined ? slugify(data.title.trim()) : note.slug,
+    slug: newSlug !== undefined ? newSlug : note.slug,
     content: data.content !== undefined ? data.content : note.content,
     folderId: data.folderId !== undefined ? data.folderId : note.folderId,
     isPinned: data.isPinned !== undefined ? data.isPinned : note.isPinned,
@@ -468,6 +513,72 @@ export async function createFolder(name: string, parentId: string | null = null,
     updatedAt: new Date().toISOString(),
   };
   memoryStore.folders.push(folder);
+  return folder;
+}
+
+// Bir klasörün (id) verilen hedef (targetParentId) altına taşınmasının
+// döngü oluşturup oluşturmayacağını kontrol eder (kendi alt klasörüne taşınamaz).
+function wouldCreateCycle(
+  allFolders: { id: string; parentId?: string | null }[],
+  id: string,
+  targetParentId: string | null
+): boolean {
+  if (!targetParentId) return false;
+  if (targetParentId === id) return true;
+
+  let current = allFolders.find((f) => f.id === targetParentId);
+  while (current) {
+    if (current.id === id) return true;
+    if (!current.parentId) break;
+    current = allFolders.find((f) => f.id === current!.parentId);
+  }
+  return false;
+}
+
+export async function updateFolder(
+  id: string,
+  data: { name?: string; parentId?: string | null },
+  userId = DEFAULT_USER_ID
+): Promise<Folder | null | "cycle"> {
+  const useDb = await checkPrisma();
+  if (useDb) {
+    try {
+      if (data.parentId !== undefined) {
+        const allFolders = await prisma.folder.findMany({
+          where: { userId },
+          select: { id: true, parentId: true },
+        });
+        if (wouldCreateCycle(allFolders, id, data.parentId)) {
+          return "cycle";
+        }
+      }
+
+      const updateData: Record<string, unknown> = { updatedAt: new Date() };
+      if (data.name !== undefined) updateData.name = data.name.trim();
+      if (data.parentId !== undefined) updateData.parentId = data.parentId;
+
+      const updated = await prisma.folder.update({
+        where: { id },
+        data: updateData,
+      });
+      return updated as unknown as Folder;
+    } catch {
+      // fallback
+    }
+  }
+
+  const folder = memoryStore.folders.find((f) => f.id === id && f.userId === userId);
+  if (!folder) return null;
+
+  if (data.parentId !== undefined) {
+    if (wouldCreateCycle(memoryStore.folders, id, data.parentId)) {
+      return "cycle";
+    }
+    folder.parentId = data.parentId;
+  }
+  if (data.name !== undefined) folder.name = data.name.trim();
+  folder.updatedAt = new Date().toISOString();
+
   return folder;
 }
 

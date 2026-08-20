@@ -194,6 +194,18 @@ export function GraphView({ data, activeNoteId, onNodeClick }: GraphViewProps) {
     ctx.restore();
   }, [panOffset, zoomLevel, hoveredNode, activeNoteId, searchQuery]);
 
+  // renderCanvas, hover/zoom/pan/arama gibi sık değişen state'lere bağlı olduğundan
+  // kimliği her hover değişiminde yenileniyor. Onu doğrudan effect bağımlılığı yapmak yerine
+  // bir ref üzerinden en güncel haliyle çağırıyoruz; aksi halde aşağıdaki similasyon
+  // başlatma effect'i her hover değişiminde yeniden tetiklenip simülasyonu sıfırdan
+  // başlatıyor (düğümler mevcut konumlarını kaybedip "sapıtıyor").
+  const renderCanvasRef = React.useRef(renderCanvas);
+  React.useEffect(() => {
+    renderCanvasRef.current = renderCanvas;
+    // Hover/zoom/pan/aktif not/arama değişince simülasyonu sıfırlamadan sadece yeniden çiz.
+    renderCanvas();
+  }, [renderCanvas]);
+
   // Initialize simulation data
   React.useEffect(() => {
     if (!data.nodes || data.nodes.length === 0) return;
@@ -230,13 +242,13 @@ export function GraphView({ data, activeNoteId, onNodeClick }: GraphViewProps) {
     simRef.current = simulation;
 
     simulation.on("tick", () => {
-      renderCanvas();
+      renderCanvasRef.current();
     });
 
     return () => {
       simulation.stop();
     };
-  }, [data, renderCanvas]);
+  }, [data]);
 
   // Window resize handler
   React.useEffect(() => {
@@ -247,13 +259,13 @@ export function GraphView({ data, activeNoteId, onNodeClick }: GraphViewProps) {
 
       canvas.width = container.clientWidth;
       canvas.height = container.clientHeight;
-      renderCanvas();
+      renderCanvasRef.current();
     };
 
     handleResize();
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
-  }, [renderCanvas]);
+  }, []);
 
   // Mouse Interaction (Hover, Drag Node, Pan Canvas)
   const getNodeAtPos = (clientX: number, clientY: number): SimNode | null => {
@@ -322,14 +334,47 @@ export function GraphView({ data, activeNoteId, onNodeClick }: GraphViewProps) {
     isDraggingCanvas.current = false;
   };
 
+  const navigateToNode = React.useCallback(
+    async (node: SimNode) => {
+      if (!node.isPhantom) {
+        if (onNodeClick) {
+          onNodeClick(node.id);
+        } else {
+          router.push(`/notes/${node.id}`);
+        }
+        return;
+      }
+
+      // Hayalet (henüz oluşturulmamış) düğüm: sahte "phantom-..." id'sine gitmek yerine
+      // gerçek notu ismiyle bul/oluştur ve ona yönlendir.
+      try {
+        const res = await fetch("/api/notes/resolve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: node.title }),
+        });
+        const data = await res.json();
+        if (data.note) {
+          if (data.created) {
+            window.dispatchEvent(new Event("vault-updated"));
+          }
+          if (onNodeClick) {
+            onNodeClick(data.note.id);
+          } else {
+            router.push(`/notes/${data.note.id}`);
+          }
+        }
+      } catch (err) {
+        console.error("Hayalet not çözümlenemedi:", err);
+      }
+    },
+    [onNodeClick, router]
+  );
+
   const handleClick = (e: React.MouseEvent) => {
     const node = getNodeAtPos(e.clientX, e.clientY);
     if (node) {
-      if (onNodeClick) {
-        onNodeClick(node.id);
-      } else {
-        router.push(`/notes/${node.id}`);
-      }
+      navigateToNode(node);
     }
   };
 

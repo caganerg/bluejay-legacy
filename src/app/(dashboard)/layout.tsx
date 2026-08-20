@@ -28,6 +28,7 @@ export default function DashboardLayout({
   const [newFolderOpen, setNewFolderOpen] = React.useState(false);
   const [aboutOpen, setAboutOpen] = React.useState(false);
   const [selectedFolderForNewNote, setSelectedFolderForNewNote] = React.useState<string | null>(null);
+  const [selectedParentForNewFolder, setSelectedParentForNewFolder] = React.useState<string | null>(null);
 
   const fetchVaultData = async () => {
     try {
@@ -65,6 +66,11 @@ export default function DashboardLayout({
     setNewNoteOpen(true);
   };
 
+  const handleOpenNewFolder = (parentId?: string | null) => {
+    setSelectedParentForNewFolder(parentId || null);
+    setNewFolderOpen(true);
+  };
+
   const handleNoteCreated = (noteId: string) => {
     fetchVaultData();
     router.push(`/notes/${noteId}`);
@@ -79,7 +85,7 @@ export default function DashboardLayout({
         currentNoteId={currentNoteId}
         onOpenQuickSwitcher={() => setQuickSwitcherOpen(true)}
         onOpenNewNote={handleOpenNewNote}
-        onOpenNewFolder={() => setNewFolderOpen(true)}
+        onOpenNewFolder={handleOpenNewFolder}
         onOpenAbout={() => setAboutOpen(true)}
         onRefresh={fetchVaultData}
       />
@@ -111,6 +117,7 @@ export default function DashboardLayout({
         open={newFolderOpen}
         onOpenChange={setNewFolderOpen}
         onCreated={fetchVaultData}
+        parentId={selectedParentForNewFolder}
       />
 
       {/* Hakkında Modalı */}

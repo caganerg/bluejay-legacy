@@ -10,9 +10,10 @@ interface NewFolderDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated: () => void;
+  parentId?: string | null;
 }
 
-export function NewFolderDialog({ open, onOpenChange, onCreated }: NewFolderDialogProps) {
+export function NewFolderDialog({ open, onOpenChange, onCreated, parentId }: NewFolderDialogProps) {
   const [name, setName] = React.useState("");
   const [loading, setLoading] = React.useState(false);
 
@@ -32,7 +33,7 @@ export function NewFolderDialog({ open, onOpenChange, onCreated }: NewFolderDial
       const res = await fetch("/api/folders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim() }),
+        body: JSON.stringify({ name: name.trim(), parentId: parentId || null }),
       });
       const data = await res.json();
       if (data.folder) {

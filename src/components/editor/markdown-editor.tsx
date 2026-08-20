@@ -25,7 +25,7 @@ import { Note, Folder } from "@/types";
 import { transformWikiLinksForDisplay, extractTags } from "@/lib/markdown/extractor";
 import { BacklinksPanel } from "./backlinks-panel";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
+import { cn, flattenFoldersAsTree } from "@/lib/utils";
 
 interface MarkdownEditorProps {
   note: Note;
@@ -250,9 +250,10 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
               className="bg-transparent border-0 text-slate-300 hover:text-white focus:outline-none cursor-pointer text-xs"
             >
               <option value="" className="bg-slate-900">Klasörsüz</option>
-              {folders.map((f) => (
-                <option key={f.id} value={f.id} className="bg-slate-900">
-                  {f.name}
+              {flattenFoldersAsTree(folders).map(({ folder, depth }) => (
+                <option key={folder.id} value={folder.id} className="bg-slate-900">
+                  {"  ".repeat(depth)}
+                  {folder.name}
                 </option>
               ))}
             </select>
