@@ -35,5 +35,30 @@ instead of searching for a Node binary that does not exist. Do not remove it.
 Next.js 16 (dev, build, start), ESLint and the Prisma CLI have all been
 verified to run under Bun with no Node present.
 
+### Expected warning
+
+`bun install` reports `Blocked 1 postinstall` for `unrs-resolver` (a transitive
+dependency of `eslint-config-next`). This is expected and harmless: its
+postinstall would run `node postinstall.js`, and the package already ships the
+`resolver-binding-linux-x64-*` binaries it would otherwise select. Do not run
+`bun pm trust` for it and do not install Node to satisfy it — `bun run lint`
+passes as is.
+
+Do not add a `packageManager` field to `package.json` either; that field is a
+Corepack convention and Corepack has no Bun shim, so it only breaks CI. The
+`engines.bun` field is what documents the requirement here.
+
+### Prisma under Bun
+
+Prisma's query engine is a native N-API module
+(`libquery_engine-*.so.node`). It has been verified to load and execute under
+the Bun runtime — a query against an unreachable host fails with
+`Can't reach database server`, i.e. it gets as far as opening a socket, not a
+module-loading error. Run the CLI as `bunx prisma <cmd>`; after changing
+`prisma/schema.prisma`, run `bunx prisma generate`.
+
+When `DATABASE_URL` is unset, `src/lib/notes-service.ts` falls back to an
+in-memory store; all API routes were verified to work in that mode under Bun.
+
 Anything you write that documents or automates setup — README, install scripts,
 Dockerfiles, CI workflows — must assume Bun as well.
