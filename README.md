@@ -88,9 +88,11 @@ Notlarınızı `[[wiki-links]]` ile birbirine bağlayabilir, anlık D3 destekli 
 ## 🚀 Kurulum ve Başlangıç
 
 ### 1. Gereksinimler
-- **Node.js**: `v18.18.0` veya üzeri
-- **npm**, **pnpm** veya **yarn**
+- **[Bun](https://bun.sh)**: `v1.2` veya üzeri — projenin paket yöneticisi ve çalışma zamanı
 - *(Opsiyonel)* **PostgreSQL** veritabanı
+
+> Bluejay, paket yöneticisi ve çalışma zamanı olarak Bun kullanır; Node.js ve npm gerekmez.
+> Bun kurulu değilse: `curl -fsSL https://bun.sh/install | bash`
 
 ### 2. Projeyi Klonlayın
 ```bash
@@ -100,7 +102,7 @@ cd bluejay
 
 ### 3. Bağımlılıkları Yükleyin
 ```bash
-npm install
+bun install
 ```
 
 ### 4. Ortam Değişkenlerini Ayarlayın
@@ -117,12 +119,12 @@ DATABASE_URL="postgresql://kullanici:sifre@localhost:5432/bluejay?schema=public"
 
 ### 5. Veritabanı Şemasını Eşitleyin *(PostgreSQL kullanılıyorsa)*
 ```bash
-npx prisma db push
+bunx prisma db push
 ```
 
 ### 6. Geliştirme Sunucusunu Başlatın
 ```bash
-npm run dev
+bun run dev
 ```
 
 Tarayıcınızda [http://localhost:3000](http://localhost:3000) adresine giderek Bluejay'i kullanmaya başlayabilirsiniz!
