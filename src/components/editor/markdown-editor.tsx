@@ -25,7 +25,8 @@ import { Note, Folder } from "@/types";
 import { transformWikiLinksForDisplay, extractTags } from "@/lib/markdown/extractor";
 import { BacklinksPanel } from "./backlinks-panel";
 import { Badge } from "@/components/ui/badge";
-import { cn, flattenFoldersAsTree } from "@/lib/utils";
+import { cn, flattenFoldersAsTree, slugify } from "@/lib/utils";
+import { useVault, primeNote } from "@/lib/vault-context";
 
 interface MarkdownEditorProps {
   note: Note;
@@ -38,6 +39,7 @@ type EditorMode = "split" | "edit" | "preview";
 
 export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: MarkdownEditorProps) {
   const router = useRouter();
+  const { notes: vaultNotes } = useVault();
   const [title, setTitle] = React.useState(note.title);
   const [content, setContent] = React.useState(note.content);
   const [folderId, setFolderId] = React.useState<string | null>(note.folderId || null);
@@ -206,6 +208,18 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
       const rawTargetTitle = decodeURIComponent(href.replace("#wikilink:", "")).trim();
       if (!rawTargetTitle) return;
 
+      // Hedef not zaten vault'ta varsa resolve isteğini beklemeden git.
+      const targetSlug = slugify(rawTargetTitle);
+      const existing = vaultNotes.find(
+        (n) =>
+          n.slug === targetSlug ||
+          n.title.toLocaleLowerCase("tr-TR") === rawTargetTitle.toLocaleLowerCase("tr-TR")
+      );
+      if (existing) {
+        router.push(`/notes/${existing.id}`);
+        return;
+      }
+
       setIsNavigatingWikilink(true);
       try {
         const res = await fetch("/api/notes/resolve", {
@@ -219,6 +233,7 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
 
         const data = await res.json();
         if (data.note) {
+          primeNote(data.note);
           if (data.created) {
             window.dispatchEvent(new Event("vault-updated"));
             if (onRefreshVault) onRefreshVault();

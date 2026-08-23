@@ -7,20 +7,14 @@ import { QuickSwitcher } from "@/components/modals/quick-switcher";
 import { NewNoteDialog } from "@/components/modals/new-note-dialog";
 import { NewFolderDialog } from "@/components/modals/new-folder-dialog";
 import { AboutDialog } from "@/components/modals/about-dialog";
-import { Note, Folder } from "@/types";
+import { VaultProvider, useVault, primeNote } from "@/lib/vault-context";
 
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+function DashboardShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const params = useParams();
   const currentNoteId = params?.id as string | undefined;
 
-  const [notes, setNotes] = React.useState<Note[]>([]);
-  const [folders, setFolders] = React.useState<Folder[]>([]);
-  const [_loading, setLoading] = React.useState(true);
+  const { notes, folders, refresh } = useVault();
 
   // Modals state
   const [quickSwitcherOpen, setQuickSwitcherOpen] = React.useState(false);
@@ -29,37 +23,6 @@ export default function DashboardLayout({
   const [aboutOpen, setAboutOpen] = React.useState(false);
   const [selectedFolderForNewNote, setSelectedFolderForNewNote] = React.useState<string | null>(null);
   const [selectedParentForNewFolder, setSelectedParentForNewFolder] = React.useState<string | null>(null);
-
-  const fetchVaultData = async () => {
-    try {
-      const [notesRes, foldersRes] = await Promise.all([
-        fetch("/api/notes"),
-        fetch("/api/folders"),
-      ]);
-      const notesData = await notesRes.json();
-      const foldersData = await foldersRes.json();
-
-      setNotes(notesData.notes || []);
-      setFolders(foldersData.folders || []);
-    } catch (err) {
-      console.error("Vault verisi yüklenirken hata:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  React.useEffect(() => {
-    fetchVaultData();
-
-    const handleVaultUpdated = () => {
-      fetchVaultData();
-    };
-
-    window.addEventListener("vault-updated", handleVaultUpdated);
-    return () => {
-      window.removeEventListener("vault-updated", handleVaultUpdated);
-    };
-  }, []);
 
   const handleOpenNewNote = (folderId?: string | null) => {
     setSelectedFolderForNewNote(folderId || null);
@@ -71,9 +34,12 @@ export default function DashboardLayout({
     setNewFolderOpen(true);
   };
 
-  const handleNoteCreated = (noteId: string) => {
-    fetchVaultData();
+  // Yeni not zaten API yanıtıyla elimizde; önbelleğe koyup anında açıyoruz,
+  // vault listesi arka planda tazeleniyor.
+  const handleNoteCreated = (noteId: string, note?: unknown) => {
+    if (note) primeNote(note as Parameters<typeof primeNote>[0]);
     router.push(`/notes/${noteId}`);
+    refresh();
   };
 
   return (
@@ -87,7 +53,7 @@ export default function DashboardLayout({
         onOpenNewNote={handleOpenNewNote}
         onOpenNewFolder={handleOpenNewFolder}
         onOpenAbout={() => setAboutOpen(true)}
-        onRefresh={fetchVaultData}
+        onRefresh={refresh}
       />
 
       {/* Ana Çalışma Alanı */}
@@ -116,7 +82,7 @@ export default function DashboardLayout({
       <NewFolderDialog
         open={newFolderOpen}
         onOpenChange={setNewFolderOpen}
-        onCreated={fetchVaultData}
+        onCreated={refresh}
         parentId={selectedParentForNewFolder}
       />
 
@@ -126,5 +92,17 @@ export default function DashboardLayout({
         onOpenChange={setAboutOpen}
       />
     </div>
+  );
+}
+
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <VaultProvider>
+      <DashboardShell>{children}</DashboardShell>
+    </VaultProvider>
   );
 }

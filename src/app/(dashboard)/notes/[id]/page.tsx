@@ -3,67 +3,66 @@
 import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { MarkdownEditor } from "@/components/editor/markdown-editor";
-import { Note, Folder } from "@/types";
+import { Note } from "@/types";
 import { Loader2, AlertCircle, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useVault, primeNote } from "@/lib/vault-context";
 
 export default function NoteDetailPage() {
   const params = useParams();
   const router = useRouter();
   const noteId = params?.id as string;
 
-  const [note, setNote] = React.useState<Note | null>(null);
-  const [folders, setFolders] = React.useState<Folder[]>([]);
-  const [initialLoading, setInitialLoading] = React.useState(true);
+  const { folders, loading: vaultLoading, findNote, refresh } = useVault();
+
+  // Sidebar için zaten yüklenmiş olan vault verisi notun tamamını içeriyor;
+  // ağ isteğini beklemeden anında gösteriyoruz.
+  const cachedNote = findNote(noteId);
+
+  // Detay isteğinden gelen (backlink'li) sürüm; gelene kadar cachedNote kullanılır.
+  const [fetchedNote, setFetchedNote] = React.useState<Note | null>(null);
+  const [notFound, setNotFound] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  const fetchNoteAndFolders = React.useCallback(
-    async (isInitial = false) => {
-      if (!noteId) return;
-      if (isInitial) {
-        setInitialLoading(true);
+  const note = React.useMemo(() => {
+    if (fetchedNote && cachedNote) return { ...cachedNote, ...fetchedNote };
+    return fetchedNote || cachedNote;
+  }, [fetchedNote, cachedNote]);
+
+  const fetchNote = React.useCallback(async () => {
+    if (!noteId) return;
+    try {
+      const res = await fetch(`/api/notes/${encodeURIComponent(noteId)}`);
+
+      if (!res.ok) {
+        if (res.status === 404) {
+          setNotFound(true);
+          return;
+        }
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Not yüklenemedi");
+      }
+
+      const data = await res.json();
+      if (data.note) {
+        primeNote(data.note);
+        setFetchedNote(data.note);
+        setNotFound(false);
         setError(null);
       }
-      try {
-        const [noteRes, foldersRes] = await Promise.all([
-          fetch(`/api/notes/${encodeURIComponent(noteId)}`),
-          fetch("/api/folders"),
-        ]);
+    } catch (err: unknown) {
+      console.error("Not yükleme hatası:", err);
+      setError(err instanceof Error ? err.message : "Not yüklenemedi");
+    }
+  }, [noteId]);
 
-        if (foldersRes.ok) {
-          const foldersData = await foldersRes.json();
-          setFolders(foldersData.folders || []);
-        }
-
-        if (!noteRes.ok) {
-          if (noteRes.status === 404) {
-            setNote(null);
-            setError("Not bulunamadı");
-            return;
-          }
-          const errData = await noteRes.json().catch(() => ({}));
-          throw new Error(errData.error || "Not yüklenemedi");
-        }
-
-        const noteData = await noteRes.json();
-        setNote(noteData.note);
-      } catch (err: unknown) {
-        console.error("Not yükleme hatası:", err);
-        if (isInitial) {
-          setError(err instanceof Error ? err.message : "Not yüklenemedi");
-        }
-      } finally {
-        if (isInitial) {
-          setInitialLoading(false);
-        }
-      }
-    },
-    [noteId]
-  );
-
+  // Not değiştiğinde önceki notun detayını sıfırla ve arka planda tazele.
   React.useEffect(() => {
-    fetchNoteAndFolders(true);
-  }, [fetchNoteAndFolders]);
+    setFetchedNote(null);
+    setNotFound(false);
+    setError(null);
+    fetchNote();
+  }, [fetchNote]);
 
   const handleSave = async (updatedData: {
     title: string;
@@ -83,7 +82,11 @@ export default function NoteDetailPage() {
 
     const data = await res.json();
     if (data.note) {
-      setNote((prev) => (prev ? { ...prev, ...data.note } : data.note));
+      setFetchedNote((prev) => {
+        const merged = prev ? { ...prev, ...data.note } : { ...note, ...data.note };
+        primeNote(merged);
+        return merged;
+      });
     }
   };
 
@@ -115,6 +118,7 @@ export default function NoteDetailPage() {
       });
       const data = await res.json();
       if (data.note) {
+        primeNote(data.note);
         window.dispatchEvent(new Event("vault-updated"));
         router.replace(`/notes/${data.note.id}`);
       }
@@ -125,16 +129,21 @@ export default function NoteDetailPage() {
     }
   };
 
-  if (initialLoading) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-[#0a0d16] text-slate-400 space-y-3">
-        <Loader2 className="h-6 w-6 animate-spin text-indigo-400" />
-        <span className="text-xs">Not yükleniyor...</span>
-      </div>
-    );
+  // Yükleme ekranı yalnızca elimizde hiç veri yokken görünür; önbellekten
+  // açılan notlarda hiç gösterilmez.
+  if (!note && !notFound && !error) {
+    if (vaultLoading) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center bg-[#0a0d16] text-slate-400 space-y-3">
+          <Loader2 className="h-6 w-6 animate-spin text-indigo-400" />
+          <span className="text-xs">Not yükleniyor...</span>
+        </div>
+      );
+    }
+    return <div className="flex-1 bg-[#0a0d16]" />;
   }
 
-  if (error || !note) {
+  if (!note) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center bg-[#0a0d16] text-slate-300 space-y-5 p-8 text-center">
         <div className="h-12 w-12 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
@@ -172,7 +181,7 @@ export default function NoteDetailPage() {
       note={note}
       folders={folders}
       onSave={handleSave}
-      onRefreshVault={() => fetchNoteAndFolders(false)}
+      onRefreshVault={refresh}
     />
   );
 }

@@ -4,6 +4,7 @@
 
 > **Obsidian esintili, bulut tabanlı, çift yönlü bağlantı (bi-directional linking) ve interaktif bilgi grafiği destekli modern Markdown not alma platformu.**
 
+[![Bun](https://img.shields.io/badge/Bun-v1.2-fbf0df?style=flat-square&logo=bun&logoColor=black)](https://bun.sh/)
 [![Next.js](https://img.shields.io/badge/Next.js-16.3.0-black?style=flat-square&logo=next.js)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19.2.8-blue?style=flat-square&logo=react)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
@@ -64,6 +65,7 @@ Notlarınızı `[[wiki-links]]` ile birbirine bağlayabilir, anlık D3 destekli 
 
 | Katman | Teknoloji / Kütüphane |
 | :--- | :--- |
+| **Çalışma Zamanı & Paket Yöneticisi** | [Bun](https://bun.sh/) `v1.2+` (Node.js/npm gerekmez) |
 | **Framework** | [Next.js 16](https://nextjs.org/) (App Router, Server Components & Route Handlers) |
 | **Arayüz & Çekirdek** | [React 19](https://react.dev/), [TypeScript 5](https://www.typescriptlang.org/) |
 | **Stil & Tasarım** | [Tailwind CSS v4](https://tailwindcss.com/), Radix UI Primitives, Lucide Icons |
@@ -105,6 +107,11 @@ cd bluejay
 bun install
 ```
 
+> Kilit dosyası `bun.lock`'tur ve depoya dahildir; `package-lock.json` oluşturmayın.
+>
+> Kurulum sırasında görülen `Blocked 1 postinstall` (`unrs-resolver`) uyarısı beklenen ve
+> zararsız bir çıktıdır: ilgili paket ihtiyaç duyduğu ikilikleri zaten hazır getirir.
+
 ### 4. Ortam Değişkenlerini Ayarlayın
 `.env.example` dosyasını `.env` olarak kopyalayın:
 ```bash
@@ -121,6 +128,7 @@ DATABASE_URL="postgresql://kullanici:sifre@localhost:5432/bluejay?schema=public"
 ```bash
 bunx prisma db push
 ```
+> `prisma/schema.prisma` dosyasını her değiştirdiğinizde `bunx prisma generate` çalıştırmayı unutmayın.
 
 ### 6. Geliştirme Sunucusunu Başlatın
 ```bash
@@ -128,6 +136,28 @@ bun run dev
 ```
 
 Tarayıcınızda [http://localhost:3000](http://localhost:3000) adresine giderek Bluejay'i kullanmaya başlayabilirsiniz!
+
+---
+
+## 📦 Kullanılabilir Komutlar
+
+Tüm komutlar Bun ile çalıştırılır; `npm`, `npx`, `yarn` veya `pnpm` ile başlayan
+komutlar bu projede kullanılmaz.
+
+| Komut | İşlev |
+| :--- | :--- |
+| `bun install` | Bağımlılıkları kurar |
+| `bun add <paket>` | Bağımlılık ekler (geliştirme için: `bun add -d <paket>`) |
+| `bun remove <paket>` | Bağımlılık kaldırır |
+| `bun run dev` | Geliştirme sunucusunu başlatır |
+| `bun run build` | Üretim derlemesi alır |
+| `bun run start` | Üretim derlemesini sunar |
+| `bun run lint` | ESLint denetimini çalıştırır |
+| `bunx prisma <komut>` | Prisma CLI (`generate`, `db push`, `migrate dev` …) |
+
+> `bunfig.toml` içindeki `[run] bun = true` ayarı, `node_modules/.bin` altındaki
+> ikiliklerin (`next`, `eslint`, `prisma`) Node yerine Bun çalışma zamanıyla
+> çalıştırılmasını sağlar. Bu dosyayı silmeyin.
 
 ---
 
