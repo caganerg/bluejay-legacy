@@ -4,7 +4,7 @@ import * as React from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Folder } from "@/types";
+import { Folder, Note } from "@/types";
 import { flattenFoldersAsTree } from "@/lib/utils";
 import { FilePlus } from "lucide-react";
 
@@ -13,7 +13,7 @@ interface NewNoteDialogProps {
   onOpenChange: (open: boolean) => void;
   folders: Folder[];
   currentFolderId?: string | null;
-  onCreated: (noteId: string) => void;
+  onCreated: (noteId: string, note?: Note) => void;
 }
 
 export function NewNoteDialog({
@@ -54,7 +54,7 @@ export function NewNoteDialog({
       if (data.note) {
         setTitle("");
         onOpenChange(false);
-        onCreated(data.note.id);
+        onCreated(data.note.id, data.note);
       }
     } catch (err) {
       console.error("Not oluşturma hatası:", err);

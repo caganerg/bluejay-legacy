@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Link2, ArrowUpRight, ArrowDownLeft, Plus, HelpCircle, FileText } from "lucide-react";
 import { NoteLinkItem } from "@/types";
+import { primeNote } from "@/lib/vault-context";
 import { Button } from "@/components/ui/button";
 
 interface BacklinksPanelProps {
@@ -40,6 +41,7 @@ export function BacklinksPanel({
       });
       const data = await res.json();
       if (data.note) {
+        primeNote(data.note);
         if (onNoteCreated) onNoteCreated(data.note.id);
         router.push(`/notes/${data.note.id}`);
       }

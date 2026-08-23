@@ -5,14 +5,14 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Command } from "cmdk";
 import { Search, FileText, Plus, Folder as FolderIcon, Network, Info } from "lucide-react";
-import { SearchResult } from "@/types";
+import { Note, SearchResult } from "@/types";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
 
 interface QuickSwitcherProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onNoteCreated?: (noteId: string) => void;
+  onNoteCreated?: (noteId: string, note?: Note) => void;
   onOpenAbout?: () => void;
 }
 
@@ -76,7 +76,7 @@ export function QuickSwitcher({ open, onOpenChange, onNoteCreated, onOpenAbout }
       if (data.note) {
         onOpenChange(false);
         setQuery("");
-        if (onNoteCreated) onNoteCreated(data.note.id);
+        if (onNoteCreated) onNoteCreated(data.note.id, data.note);
         router.push(`/notes/${data.note.id}`);
       }
     } catch (err) {
