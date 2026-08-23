@@ -17,6 +17,7 @@ import {
   Sparkles,
   Info,
   GripVertical,
+  LogOut,
 } from "lucide-react";
 import { Note, Folder } from "@/types";
 import { cn, collectFolderSubtreeIds } from "@/lib/utils";
@@ -68,6 +69,22 @@ export function Sidebar({
     const message = data?.error || fallback;
     console.error(message);
     alert(message);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+    } catch (err) {
+      console.error("Çıkış yapılamadı:", err);
+    } finally {
+      // Parola koruması kapalıysa çıkış bir şey değiştirmez; yine de giriş
+      // ekranına götürüp durumu kullanıcıya gösteriyoruz.
+      router.replace("/login");
+      router.refresh();
+    }
   };
 
   const handleDeleteNote = async (e: React.MouseEvent, noteId: string) => {
@@ -443,16 +460,26 @@ export function Sidebar({
           <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
           <span>Bulut Depolama Aktif</span>
         </div>
-        {onOpenAbout && (
+        <div className="flex items-center gap-1">
+          {onOpenAbout && (
+            <button
+              onClick={onOpenAbout}
+              className="flex items-center gap-1 text-slate-400 hover:text-indigo-300 transition-colors text-[10px] bg-slate-900/60 hover:bg-slate-800 px-2 py-0.5 rounded border border-slate-800"
+              title="Uygulama ve Lisans Hakkında"
+            >
+              <Info className="h-3 w-3" />
+              Hakkında
+            </button>
+          )}
           <button
-            onClick={onOpenAbout}
-            className="flex items-center gap-1 text-slate-400 hover:text-indigo-300 transition-colors text-[10px] bg-slate-900/60 hover:bg-slate-800 px-2 py-0.5 rounded border border-slate-800"
-            title="Uygulama ve Lisans Hakkında"
+            onClick={handleLogout}
+            className="flex items-center gap-1 text-slate-400 hover:text-rose-300 transition-colors text-[10px] bg-slate-900/60 hover:bg-slate-800 px-2 py-0.5 rounded border border-slate-800"
+            title="Kasayı Kilitle (Çıkış)"
           >
-            <Info className="h-3 w-3" />
-            Hakkında
+            <LogOut className="h-3 w-3" />
+            Kilitle
           </button>
-        )}
+        </div>
       </div>
     </aside>
   );

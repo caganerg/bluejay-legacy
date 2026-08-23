@@ -55,6 +55,11 @@ Link your notes together with `[[wiki-links]]`, visualize them in a live D3-powe
 - **Unlimited Nested Folders:** Organize your notes in a hierarchical folder tree.
 - **Inline `#tag` Support:** `#tag` mentions inside Markdown content are automatically extracted and made filterable.
 
+### 🔒 Single-Password Vault Lock
+- **One password, no accounts:** Bluejay serves a single vault, so access is guarded by one password rather than a user directory.
+- **Signed Session Cookie:** An HttpOnly, SameSite cookie signed with HMAC-SHA256; tampering with it invalidates the session.
+- **Fails Closed in Production:** Deploying without a password configured makes the app refuse every request instead of coming up unprotected.
+
 ### 💾 Hybrid Data Architecture
 - **PostgreSQL + Prisma ORM:** A persistent, relational, and high-performance database model.
 - **Built-in Fallback (In-Memory Store):** A smart in-memory storage layer that lets you try out every feature of the app instantly, even without a configured database.
@@ -118,11 +123,31 @@ Copy `.env.example` to `.env`:
 cp .env.example .env
 ```
 
-Set your database connection string in `.env`:
+Set the vault password and your database connection string in `.env`:
 ```env
+BLUEJAY_PASSWORD="the-password-that-unlocks-your-vault"
+AUTH_SECRET="a-long-random-string"
 DATABASE_URL="postgresql://user:password@localhost:5432/bluejay?schema=public"
 ```
-> *Note: If the database URL isn't set, Bluejay automatically starts in In-Memory mode.*
+
+**`BLUEJAY_PASSWORD` guards the whole vault.** Bluejay serves a single vault, so
+there are no user accounts: whoever knows the password gets a signed, HttpOnly
+session cookie and full access. Leave it unset and protection is **off** — anyone
+who can reach the app reads, edits, and deletes every note. Because of that,
+the password is mandatory in production: with `NODE_ENV=production` and no
+password set, the app answers every request with `503` instead of starting up
+unprotected.
+
+`AUTH_SECRET` signs the session cookie. If you leave it empty it is derived from
+the password, which means changing the password invalidates every open session.
+Generate one with:
+```bash
+bun -e 'console.log(crypto.randomUUID() + crypto.randomUUID())'
+```
+
+> *Note: If the database URL isn't set, Bluejay starts in In-Memory mode and data
+> is lost when the process exits. If it **is** set, database errors are no longer
+> swallowed — the API returns 500 rather than silently writing somewhere else.*
 
 ### 5. Sync the Database Schema *(if using PostgreSQL)*
 ```bash
@@ -137,11 +162,13 @@ bun run dev
 
 Head to [http://localhost:3000](http://localhost:3000) in your browser and start using Bluejay!
 
+If `BLUEJAY_PASSWORD` is set you'll be asked for it once; the session then lasts
+seven days, and **Kilitle** in the sidebar footer ends it.
+
 > **Why `-H 127.0.0.1`?** The `dev` and `start` scripts bind to loopback on purpose.
-> Next.js defaults to `0.0.0.0`, which exposes the app to everyone on your network —
-> and Bluejay currently has **no authentication**: every request runs as the same
-> default user, so anyone who can reach the port can read, edit, and delete every note.
-> Don't remove the flag until an auth layer is in place.
+> Next.js defaults to `0.0.0.0`, which would expose the app to everyone on your
+> network. Set `BLUEJAY_PASSWORD`, put the app behind TLS, and set
+> `RATE_LIMIT_TRUSTED_PROXIES` to your proxy count before you change this.
 
 ---
 

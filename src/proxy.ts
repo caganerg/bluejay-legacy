@@ -1,4 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  AUTH_ENABLED,
+  AUTH_MISCONFIGURED,
+  SESSION_COOKIE,
+  verifySessionToken,
+} from "@/lib/auth";
 
 // Next.js 16'da `middleware.ts` konvansiyonu `proxy.ts` olarak yeniden
 // adlandırıldı ve dışa aktarılan fonksiyonun adı `proxy` oldu
@@ -86,7 +92,46 @@ function buildCsp(nonce: string): string {
   ].join("; ");
 }
 
+// Parola sorulmadan erişilebilen tek yollar: giriş ekranı ve onu besleyen rota.
+const PUBLIC_PATHS = new Set(["/login", "/api/auth/login"]);
+
+function isApiPath(pathname: string): boolean {
+  return pathname.startsWith("/api/");
+}
+
+/**
+ * Oturum kontrolü. Uygulama tek bir kasayı sunduğu için kimlik değil erişim
+ * doğrulanıyor: geçerli imzalı çerezi olmayan istekler sayfalarda giriş
+ * ekranına yönlendiriliyor, API'de 401 alıyor.
+ */
+function authRejection(request: NextRequest): NextResponse | null {
+  const { pathname } = request.nextUrl;
+
+  // Üretimde parola yapılandırılmamışsa hizmet verme: korumasız dağıtılan bir
+  // kasa, ona erişebilen herkese açıktır.
+  if (AUTH_MISCONFIGURED) {
+    return jsonError(
+      "Sunucu yapılandırılmamış: üretimde BLUEJAY_PASSWORD tanımlanmadan uygulama açılamaz.",
+      503
+    );
+  }
+
+  if (!AUTH_ENABLED || PUBLIC_PATHS.has(pathname)) return null;
+  if (verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value)) return null;
+
+  if (isApiPath(pathname)) {
+    return jsonError("Oturum açmanız gerekiyor", 401);
+  }
+
+  const loginUrl = new URL("/login", request.url);
+  if (pathname !== "/") loginUrl.searchParams.set("next", pathname + request.nextUrl.search);
+  return NextResponse.redirect(loginUrl);
+}
+
 export function proxy(request: NextRequest) {
+  const denied = authRejection(request);
+  if (denied) return denied;
+
   const rejection = csrfRejection(request);
   if (rejection) return rejection;
 
