@@ -62,7 +62,10 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
 
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
-  // Sync state ONLY when a different note is selected
+  // Yerel düzenleme durumunu YALNIZCA başka bir not seçildiğinde sıfırla.
+  // `note.title/content/folderId` bağımlılığa eklenirse, kaydetme yanıtı `note`
+  // nesnesini değiştirdiği için bu efekt yeniden çalışıp kullanıcının istek
+  // uçarken yazdığı karakterleri sunucudan dönen sürümle eziyor (kayıp güncelleme).
   React.useEffect(() => {
     setTitle(note.title);
     setContent(note.content);
@@ -73,7 +76,8 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
       content: note.content,
       folderId: note.folderId || null,
     };
-  }, [note.id, note.title, note.content, note.folderId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note.id]);
 
   // Debounced Auto-Save (only if actually changed)
   React.useEffect(() => {
@@ -103,12 +107,12 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
   }, [title, content, folderId, onSave]);
 
   // [[ Wikilink Autocomplete Logic
-  const handleContentChange = async (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     const cursorPos = e.target.selectionStart;
     setContent(val);
 
-    // Son 20 karaktere bakarak [[ olup olmadığını kontrol et
+    // İmlecin solundaki metinde açık bir [[ var mı?
     const textBeforeCursor = val.slice(0, cursorPos);
     const lastOpenBracket = textBeforeCursor.lastIndexOf("[[");
 
@@ -120,20 +124,39 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
         setSuggestionQuery(textAfterBracket);
         setTriggerPos(lastOpenBracket);
         setSelectedIndex(0);
-
-        try {
-          const res = await fetch(`/api/search?q=${encodeURIComponent(textAfterBracket)}`);
-          const data = await res.json();
-          setSuggestedNotes(data.results || []);
-        } catch {
-          // ignore
-        }
         return;
       }
     }
 
     setIsSuggesting(false);
   };
+
+  // Öneri araması geciktirmeli ve iptal edilebilir olmak zorunda: eskiden her
+  // tuş vuruşu doğrudan bir istek başlatıyordu, yanıtlar sırasız döndüğünde eski
+  // sonuçlar yenilerin üzerine yazılıyor ve hızlı yazan bir kullanıcı tek başına
+  // dakikada 180 isteklik arama limitine çarpabiliyordu.
+  React.useEffect(() => {
+    if (!isSuggesting) return;
+
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(suggestionQuery)}`, {
+          signal: controller.signal,
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        setSuggestedNotes(data.results || []);
+      } catch {
+        // İptal edilen istek ya da ağ hatası: önceki öneriler korunur.
+      }
+    }, 120);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [isSuggesting, suggestionQuery]);
 
   const insertWikilink = (targetTitle: string) => {
     if (triggerPos === null || !textareaRef.current) return;

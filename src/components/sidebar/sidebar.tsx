@@ -19,7 +19,7 @@ import {
   GripVertical,
 } from "lucide-react";
 import { Note, Folder } from "@/types";
-import { cn } from "@/lib/utils";
+import { cn, collectFolderSubtreeIds } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 const DND_MIME = "application/x-bluejay-item";
@@ -61,13 +61,26 @@ export function Sidebar({
     }));
   };
 
+  // Başarısız bir istek arayüzde başarılı gibi görünmemeli: sunucu 429 ya da 500
+  // dönse bile eskiden liste tazeleniyor, silmede ana sayfaya yönlendiriliyordu.
+  const reportFailure = async (res: Response, fallback: string) => {
+    const data = await res.json().catch(() => null);
+    const message = data?.error || fallback;
+    console.error(message);
+    alert(message);
+  };
+
   const handleDeleteNote = async (e: React.MouseEvent, noteId: string) => {
     e.preventDefault();
     e.stopPropagation();
     if (!confirm("Bu notu silmek istediğinize emin misiniz?")) return;
 
     try {
-      await fetch(`/api/notes/${noteId}`, { method: "DELETE" });
+      const res = await fetch(`/api/notes/${noteId}`, { method: "DELETE" });
+      if (!res.ok) {
+        await reportFailure(res, "Not silinemedi.");
+        return;
+      }
       onRefresh();
       window.dispatchEvent(new Event("vault-updated"));
       if (currentNoteId === noteId) {
@@ -75,29 +88,46 @@ export function Sidebar({
       }
     } catch (err) {
       console.error("Not silinirken hata:", err);
+      alert("Not silinemedi: sunucuya ulaşılamadı.");
     }
   };
 
   const handleDeleteFolder = async (e: React.MouseEvent, folder: Folder) => {
     e.preventDefault();
     e.stopPropagation();
-    if (
-      !confirm(
-        `"${folder.name}" klasörünü silmek istediğinize emin misiniz? (İçindeki notlar ve alt klasörler klasörsüz olarak korunacaktır)`
-      )
-    ) {
-      return;
-    }
+
+    // Şemadaki `onDelete: Cascade` alt klasörleri gerçekten siliyor; notlar ise
+    // `onDelete: SetNull` ile klasörsüz kalıyor. Onay metni eskiden alt
+    // klasörlerin de korunacağını söylüyordu — kullanıcı korunacağı söylenen
+    // klasör hiyerarşisini kaybediyordu.
+    const subtree = collectFolderSubtreeIds(folders, folder.id);
+    const subfolderCount = subtree.size - 1;
+    const noteCount = notes.filter((n) => n.folderId && subtree.has(n.folderId)).length;
+
+    const details = [
+      subfolderCount > 0
+        ? `${subfolderCount} alt klasör de KALICI OLARAK SİLİNECEK`
+        : null,
+      noteCount > 0 ? `${noteCount} not klasörsüz olarak korunacak` : null,
+    ].filter(Boolean);
+
+    const message = details.length
+      ? `"${folder.name}" klasörü silinsin mi?\n\n• ${details.join("\n• ")}`
+      : `"${folder.name}" klasörü silinsin mi? (Klasör boş)`;
+
+    if (!confirm(message)) return;
 
     try {
       const res = await fetch(`/api/folders/${folder.id}`, { method: "DELETE" });
       if (!res.ok) {
-        throw new Error("Klasör silinemedi");
+        await reportFailure(res, "Klasör silinemedi.");
+        return;
       }
       onRefresh();
       window.dispatchEvent(new Event("vault-updated"));
     } catch (err) {
       console.error("Klasör silinirken hata:", err);
+      alert("Klasör silinemedi: sunucuya ulaşılamadı.");
     }
   };
 
@@ -105,15 +135,20 @@ export function Sidebar({
     e.preventDefault();
     e.stopPropagation();
     try {
-      await fetch(`/api/notes/${note.id}`, {
+      const res = await fetch(`/api/notes/${note.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isPinned: !note.isPinned }),
       });
+      if (!res.ok) {
+        await reportFailure(res, "Sabitleme güncellenemedi.");
+        return;
+      }
       onRefresh();
       window.dispatchEvent(new Event("vault-updated"));
     } catch (err) {
       console.error("Sabitleme güncellenemedi:", err);
+      alert("Sabitleme güncellenemedi: sunucuya ulaşılamadı.");
     }
   };
 
@@ -122,15 +157,20 @@ export function Sidebar({
     if (note && (note.folderId || null) === folderId) return;
 
     try {
-      await fetch(`/api/notes/${noteId}`, {
+      const res = await fetch(`/api/notes/${noteId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ folderId }),
       });
+      if (!res.ok) {
+        await reportFailure(res, "Not taşınamadı.");
+        return;
+      }
       onRefresh();
       window.dispatchEvent(new Event("vault-updated"));
     } catch (err) {
       console.error("Not taşınamadı:", err);
+      alert("Not taşınamadı: sunucuya ulaşılamadı.");
     }
   };
 

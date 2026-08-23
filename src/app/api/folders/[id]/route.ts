@@ -57,6 +57,14 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const rateLimit = checkRateLimit(req, 60, 60 * 1000);
+  if (!rateLimit.success) {
+    return NextResponse.json(
+      { error: "Çok fazla istek gönderildi. Lütfen bekleyin." },
+      { status: 429 }
+    );
+  }
+
   try {
     const { id } = await params;
     const success = await deleteFolder(id);

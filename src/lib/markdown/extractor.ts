@@ -7,6 +7,33 @@ export interface ExtractedLink {
 }
 
 /**
+ * `[[Başlık|Takma Ad]]` içeriğini ilk `|` karakterinden böler. Ayırıcıdan
+ * sonraki her şey takma ada aittir; başlıkta `|` kullanılamaz.
+ */
+function splitTitleAndAlias(rawContent: string): { targetTitle: string; alias?: string } {
+  const separator = rawContent.indexOf("|");
+  if (separator === -1) return { targetTitle: rawContent.trim() };
+
+  return {
+    targetTitle: rawContent.slice(0, separator).trim(),
+    alias: rawContent.slice(separator + 1).trim(),
+  };
+}
+
+/**
+ * Bir metni markdown link etiketi (`[...]`) içine güvenle gömülebilir hale getirir.
+ *
+ * Takma ad daha önce ham olarak yazılıyordu; bu yüzden link söz diziminden kaçıp
+ * keyfi markdown enjekte edebiliyordu — örneğin `[[Foo|x](başka-adres)]]`
+ * saldırgan hedefli bir bağlantıya dönüşüyordu. (react-markdown'ın varsayılan
+ * `urlTransform`'u `javascript:`/`data:` şemalarını temizlediği için bu bir XSS
+ * değildi, ama `rehype-raw` eklendiği anda öyle olurdu.)
+ */
+function escapeMarkdownText(text: string): string {
+  return text.replace(/[\\[\]!*_`~<>]/g, (ch) => `\\${ch}`);
+}
+
+/**
  * [[Not Adı]] veya [[Not Adı|Görünen İsim]] formatındaki wikilinkleri metinden ayıklar.
  */
 export function extractWikiLinks(markdown: string): ExtractedLink[] {
@@ -22,14 +49,7 @@ export function extractWikiLinks(markdown: string): ExtractedLink[] {
     const rawContent = match[1].trim();
     if (!rawContent) continue;
 
-    let targetTitle = rawContent;
-    let alias: string | undefined = undefined;
-
-    if (rawContent.includes("|")) {
-      const parts = rawContent.split("|");
-      targetTitle = parts[0].trim();
-      alias = parts[1].trim();
-    }
+    const { targetTitle, alias } = splitTitleAndAlias(rawContent);
 
     if (targetTitle && !seenTitles.has(targetTitle.toLowerCase())) {
       seenTitles.add(targetTitle.toLowerCase());
@@ -77,10 +97,11 @@ export function transformWikiLinksForDisplay(markdown: string): string {
 
   // [[Note Title|Alias]] -> [Alias](#wikilink:encodedTitle)
   // [[Note Title]] -> [Note Title](#wikilink:encodedTitle)
-  return markdown.replace(/\[\[(.*?)\]\]/g, (_, match) => {
-    const parts = match.split("|");
-    const title = parts[0].trim();
-    const alias = parts[1] ? parts[1].trim() : title;
-    return `[${alias}](#wikilink:${encodeURIComponent(title)})`;
+  return markdown.replace(/\[\[(.*?)\]\]/g, (whole, match: string) => {
+    const { targetTitle, alias } = splitTitleAndAlias(match);
+    if (!targetTitle) return whole;
+
+    const label = alias || targetTitle;
+    return `[${escapeMarkdownText(label)}](#wikilink:${encodeURIComponent(targetTitle)})`;
   });
 }

@@ -28,6 +28,27 @@ export function flattenFoldersAsTree(folders: Folder[]): { folder: Folder; depth
   return result;
 }
 
+// Bir klasörün kendisi ve bütün alt klasörlerinin ID'leri. Şemadaki
+// `onDelete: Cascade` yüzünden bir klasör silindiğinde bu kümenin tamamı
+// gerçekten siliniyor; hem silme işlemi hem de onay metni bunu kullanır.
+export function collectFolderSubtreeIds(
+  folders: { id: string; parentId?: string | null }[],
+  rootId: string
+): Set<string> {
+  const ids = new Set<string>([rootId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const folder of folders) {
+      if (folder.parentId && ids.has(folder.parentId) && !ids.has(folder.id)) {
+        ids.add(folder.id);
+        changed = true;
+      }
+    }
+  }
+  return ids;
+}
+
 const TURKISH_CHAR_MAP: Record<string, string> = {
   ç: "c",
   Ç: "c",

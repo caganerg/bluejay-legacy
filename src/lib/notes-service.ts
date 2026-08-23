@@ -1,6 +1,6 @@
 import { prisma } from "./prisma";
 import { extractWikiLinks, extractTags } from "./markdown/extractor";
-import { slugify } from "./utils";
+import { slugify, collectFolderSubtreeIds } from "./utils";
 import { Note, Folder, Tag, SearchResult } from "@/types";
 import { GraphData, GraphNode, GraphLink } from "@/types/graph";
 
@@ -8,7 +8,22 @@ import { GraphData, GraphNode, GraphLink } from "@/types/graph";
 export const DEFAULT_USER_ID = "default-user-id";
 
 // ----------------------------------------------------
-// FALLBACK / IN-MEMORY STORE (Eğer Postgres henüz ayağa kalkmadıysa)
+// DEPOLAMA MODU
+// ----------------------------------------------------
+// Mod süreç başlarken bir kez, yalnızca `DATABASE_URL`'in varlığına bakarak
+// belirlenir ve çalışma sırasında değişmez.
+//
+// Daha önce her fonksiyon `try { prisma… } catch { /* fallback */ }` kalıbını
+// kullanıyordu. Bu kalıp bağlantı kopmasını, benzersizlik ihlalini ve kısıt
+// hatasını ayırt etmeden yutup isteği sessizce bellek içi depoya yönlendiriyordu:
+// kullanıcı "Kaydedildi" görüyor, not yalnızca belleğe yazıldığı için yeniden
+// başlatmada yok oluyordu. Artık veritabanı modundayken hatalar yutulmuyor —
+// çağırana yükseliyor ve rota 500 dönüyor. Yanlış depoya sessizce yazmaktansa
+// görünür bir hata vermek yeğdir.
+export const USE_DATABASE = Boolean(process.env.DATABASE_URL);
+
+// ----------------------------------------------------
+// BELLEK İÇİ DEPO (yalnızca `DATABASE_URL` tanımsızken)
 // ----------------------------------------------------
 interface MemoryStore {
   users: { id: string; name: string; email: string }[];
@@ -17,10 +32,6 @@ interface MemoryStore {
   tags: Tag[];
 }
 
-const initialMockFolders: Folder[] = [];
-
-const initialMockNotes: Note[] = [];
-
 const globalStore = globalThis as unknown as {
   __bluejayStore?: MemoryStore;
 };
@@ -28,30 +39,13 @@ const globalStore = globalThis as unknown as {
 if (!globalStore.__bluejayStore) {
   globalStore.__bluejayStore = {
     users: [{ id: DEFAULT_USER_ID, name: "Kullanıcı", email: "user@bluejay.app" }],
-    folders: initialMockFolders,
-    notes: initialMockNotes,
+    folders: [],
+    notes: [],
     tags: [],
   };
 }
 
 const memoryStore = globalStore.__bluejayStore;
-
-// ----------------------------------------------------
-// DATABASE HELPER (Prisma ile bağlanmayı dener, hata verirse fallback kullanır)
-// ----------------------------------------------------
-let isPrismaAvailable: boolean | null = null;
-
-async function checkPrisma(): Promise<boolean> {
-  if (isPrismaAvailable !== null) return isPrismaAvailable;
-  try {
-    await prisma.$queryRaw`SELECT 1`;
-    isPrismaAvailable = true;
-    return true;
-  } catch {
-    isPrismaAvailable = false;
-    return false;
-  }
-}
 
 // ----------------------------------------------------
 // NOT SERVİS FONKSİYONLARI
@@ -62,17 +56,12 @@ async function checkPrisma(): Promise<boolean> {
 // adlandırmak veritabanında çakışmaya ve notun sessizce kaybolmasına yol açabildiğinden,
 // slug'ı önceden -2, -3... ekleyerek benzersizleştiriyoruz.
 async function getExistingSlugs(userId: string, excludeNoteId?: string): Promise<Set<string>> {
-  const useDb = await checkPrisma();
-  if (useDb) {
-    try {
-      const notes = await prisma.note.findMany({
-        where: excludeNoteId ? { userId, id: { not: excludeNoteId } } : { userId },
-        select: { slug: true },
-      });
-      return new Set(notes.map((n) => n.slug));
-    } catch {
-      // fallback
-    }
+  if (USE_DATABASE) {
+    const notes = await prisma.note.findMany({
+      where: excludeNoteId ? { userId, id: { not: excludeNoteId } } : { userId },
+      select: { slug: true },
+    });
+    return new Set(notes.map((n) => n.slug));
   }
 
   return new Set(
@@ -99,25 +88,30 @@ async function generateUniqueSlug(
   return `${base}-${counter}`;
 }
 
+// Prisma'nın benzersizlik ihlali hata kodu. `generateUniqueSlug` mevcut slug'ları
+// okuyup sonra yazdığı için araya giren eşzamanlı bir oluşturma aynı slug'ı
+// üretebiliyor; bu durumda tekrar deniyoruz.
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: string }).code === "P2002"
+  );
+}
+
 export async function getAllNotes(userId = DEFAULT_USER_ID): Promise<Note[]> {
-  const useDb = await checkPrisma();
-  if (useDb) {
-    try {
-      const notes = await prisma.note.findMany({
-        where: { userId, isArchived: false },
-        include: {
-          folder: true,
-          tags: { include: { tag: true } },
-        },
-        orderBy: [{ isPinned: "desc" }, { updatedAt: "desc" }],
-      });
-      return notes as unknown as Note[];
-    } catch {
-      // fallback
-    }
+  if (USE_DATABASE) {
+    const notes = await prisma.note.findMany({
+      where: { userId, isArchived: false },
+      include: {
+        folder: true,
+        tags: { include: { tag: true } },
+      },
+      orderBy: [{ isPinned: "desc" }, { updatedAt: "desc" }],
+    });
+    return notes as unknown as Note[];
   }
 
-  // Memory fallback
   return memoryStore.notes
     .filter((n) => n.userId === userId && !n.isArchived)
     .sort((a, b) => {
@@ -126,71 +120,109 @@ export async function getAllNotes(userId = DEFAULT_USER_ID): Promise<Note[]> {
     });
 }
 
-export async function getNoteById(id: string, userId = DEFAULT_USER_ID): Promise<Note | null> {
-  let decodedId = id;
+// Bir notu ID, slug ya da başlıkla eşleştiren tek ortak kural. `getNoteById`,
+// `updateNote` ve `deleteNote` aynı kuralı kullanır; aksi halde `GET` ile açılan
+// bir tanımlayıcı `PUT`'ta 404 veriyordu.
+function noteIdentityCandidates(id: string): { raw: string; decoded: string; slug: string } {
+  let decoded = id;
   try {
-    decodedId = decodeURIComponent(id);
+    decoded = decodeURIComponent(id);
   } catch {
-    decodedId = id;
+    decoded = id;
   }
-  const slugId = slugify(decodedId);
+  return { raw: id, decoded, slug: slugify(decoded) };
+}
 
-  const useDb = await checkPrisma();
-  if (useDb) {
-    try {
-      const note = await prisma.note.findFirst({
-        where: {
-          userId,
-          OR: [
-            { id },
-            { id: decodedId },
-            { slug: id },
-            { slug: decodedId },
-            { slug: slugId },
-            { title: { equals: id, mode: "insensitive" } },
-            { title: { equals: decodedId, mode: "insensitive" } },
-          ],
-        },
-        include: {
-          folder: true,
-          tags: { include: { tag: true } },
-          incomingLinks: {
-            include: {
-              sourceNote: { select: { id: true, title: true, slug: true } },
-            },
-          },
-          outgoingLinks: {
-            include: {
-              targetNote: { select: { id: true, title: true, slug: true } },
-            },
-          },
-        },
-      });
-      return note as unknown as Note;
-    } catch {
-      // fallback
-    }
-  }
-
-  const note = memoryStore.notes.find(
-    (n) =>
-      (n.id === id ||
-        n.id === decodedId ||
-        n.slug === id ||
-        n.slug === decodedId ||
-        n.slug === slugId ||
-        n.title.toLowerCase() === id.toLowerCase() ||
-        n.title.toLowerCase() === decodedId.toLowerCase()) &&
-      n.userId === userId
+function memoryNoteMatches(note: Note, id: string): boolean {
+  const { raw, decoded, slug } = noteIdentityCandidates(id);
+  return (
+    note.id === raw ||
+    note.id === decoded ||
+    note.slug === raw ||
+    note.slug === decoded ||
+    note.slug === slug ||
+    note.title.toLowerCase() === raw.toLowerCase() ||
+    note.title.toLowerCase() === decoded.toLowerCase()
   );
+}
+
+/**
+ * Verilen tanımlayıcıyı (ID, slug ya da başlık) gerçek not ID'sine çevirir.
+ * Yazma işlemleri önce bunu çağırır, böylece okuma ve yazma rotaları aynı
+ * tanımlayıcı kümesini kabul eder.
+ */
+export async function resolveNoteId(id: string, userId = DEFAULT_USER_ID): Promise<string | null> {
+  const { raw, decoded, slug } = noteIdentityCandidates(id);
+
+  if (USE_DATABASE) {
+    const note = await prisma.note.findFirst({
+      where: {
+        userId,
+        OR: [
+          { id: raw },
+          { id: decoded },
+          { slug: raw },
+          { slug: decoded },
+          { slug },
+          { title: { equals: raw, mode: "insensitive" } },
+          { title: { equals: decoded, mode: "insensitive" } },
+        ],
+      },
+      select: { id: true },
+    });
+    return note?.id ?? null;
+  }
+
+  const note = memoryStore.notes.find((n) => n.userId === userId && memoryNoteMatches(n, id));
+  return note?.id ?? null;
+}
+
+export async function getNoteById(id: string, userId = DEFAULT_USER_ID): Promise<Note | null> {
+  const { raw, decoded, slug } = noteIdentityCandidates(id);
+
+  if (USE_DATABASE) {
+    const note = await prisma.note.findFirst({
+      where: {
+        userId,
+        OR: [
+          { id: raw },
+          { id: decoded },
+          { slug: raw },
+          { slug: decoded },
+          { slug },
+          { title: { equals: raw, mode: "insensitive" } },
+          { title: { equals: decoded, mode: "insensitive" } },
+        ],
+      },
+      include: {
+        folder: true,
+        tags: { include: { tag: true } },
+        incomingLinks: {
+          include: {
+            sourceNote: { select: { id: true, title: true, slug: true } },
+          },
+        },
+        outgoingLinks: {
+          include: {
+            targetNote: { select: { id: true, title: true, slug: true } },
+          },
+        },
+      },
+    });
+    return (note as unknown as Note) ?? null;
+  }
+
+  const note = memoryStore.notes.find((n) => n.userId === userId && memoryNoteMatches(n, id));
   if (!note) return null;
 
   // Backlinks & Outgoing links hesapla
   const allNotes = memoryStore.notes.filter((n) => n.userId === userId);
   const outgoingExtracted = extractWikiLinks(note.content);
-  
+
   const outgoingLinks = outgoingExtracted.map((l, index) => {
-    const target = allNotes.find((n) => n.slug === l.slug || n.title.toLowerCase() === l.targetTitle.toLowerCase());
+    const target = allNotes.find(
+      (n) => n.slug === l.slug || n.title.toLowerCase() === l.targetTitle.toLowerCase()
+    );
     return {
       id: `out-${index}`,
       sourceNoteId: note.id,
@@ -205,7 +237,9 @@ export async function getNoteById(id: string, userId = DEFAULT_USER_ID): Promise
     .filter((n) => n.id !== note.id)
     .filter((otherNote) => {
       const links = extractWikiLinks(otherNote.content);
-      return links.some((l) => l.slug === note.slug || l.targetTitle.toLowerCase() === note.title.toLowerCase());
+      return links.some(
+        (l) => l.slug === note.slug || l.targetTitle.toLowerCase() === note.title.toLowerCase()
+      );
     })
     .map((source, index) => ({
       id: `in-${index}`,
@@ -265,36 +299,36 @@ export async function createNote(
   userId = DEFAULT_USER_ID
 ): Promise<Note> {
   const title = data.title.trim() || "Başlıksız Not";
-  const slug = await generateUniqueSlug(title, userId);
   const content = data.content || "";
 
-  const useDb = await checkPrisma();
-  if (useDb) {
-    try {
-      const newNote = await prisma.note.create({
-        data: {
-          title,
-          slug,
-          content,
-          userId,
-          folderId: data.folderId || null,
-        },
-        include: {
-          folder: true,
-        },
-      });
+  if (USE_DATABASE) {
+    // Slug üretimi oku-sonra-yaz olduğu için eşzamanlı bir oluşturma araya
+    // girebiliyor; benzersizlik ihlalinde yeni bir slug hesaplayıp tekrar deniyoruz.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const slug = await generateUniqueSlug(title, userId);
+      try {
+        const newNote = await prisma.note.create({
+          data: {
+            title,
+            slug,
+            content,
+            userId,
+            folderId: data.folderId || null,
+          },
+          include: { folder: true },
+        });
 
-      // Wikilinkleri ve etiketleri parse edip kaydet
-      await syncLinksAndTags(newNote.id, content, userId);
-      return newNote as unknown as Note;
-    } catch {
-      // fallback
+        await syncLinksAndTags(newNote.id, content, userId);
+        return newNote as unknown as Note;
+      } catch (error) {
+        if (!isUniqueViolation(error) || attempt === 4) throw error;
+      }
     }
   }
 
-  // Memory fallback
+  const slug = await generateUniqueSlug(title, userId);
   const newNote: Note = {
-    id: `note-${Date.now()}`,
+    id: crypto.randomUUID(),
     title,
     slug,
     content,
@@ -312,48 +346,61 @@ export async function createNote(
 
 export async function updateNote(
   id: string,
-  data: { title?: string; content?: string; folderId?: string | null; isPinned?: boolean; isArchived?: boolean },
+  data: {
+    title?: string;
+    content?: string;
+    folderId?: string | null;
+    isPinned?: boolean;
+    isArchived?: boolean;
+  },
   userId = DEFAULT_USER_ID
 ): Promise<Note | null> {
-  const newSlug =
-    data.title !== undefined ? await generateUniqueSlug(data.title.trim(), userId, id) : undefined;
+  // Okuma rotalarıyla aynı tanımlayıcıları kabul et (ID / slug / başlık).
+  const noteId = await resolveNoteId(id, userId);
+  if (!noteId) return null;
 
-  const useDb = await checkPrisma();
-  if (useDb) {
-    try {
-      const updateData: Record<string, unknown> = {
-        updatedAt: new Date(),
-      };
+  if (USE_DATABASE) {
+    const updateData: Record<string, unknown> = { updatedAt: new Date() };
+    if (data.content !== undefined) updateData.content = data.content;
+    if (data.folderId !== undefined) updateData.folderId = data.folderId;
+    if (data.isPinned !== undefined) updateData.isPinned = data.isPinned;
+    if (data.isArchived !== undefined) updateData.isArchived = data.isArchived;
+
+    // `userId` kapsamı zorunlu: bu olmadan not ID'sini bilen herkes başkasının
+    // notunu güncelleyebilir (IDOR).
+    for (let attempt = 0; attempt < 5; attempt++) {
       if (data.title !== undefined) {
         updateData.title = data.title.trim();
-        updateData.slug = newSlug;
-      }
-      if (data.content !== undefined) updateData.content = data.content;
-      if (data.folderId !== undefined) updateData.folderId = data.folderId;
-      if (data.isPinned !== undefined) updateData.isPinned = data.isPinned;
-      if (data.isArchived !== undefined) updateData.isArchived = data.isArchived;
-
-      const updated = await prisma.note.update({
-        where: { id },
-        data: updateData,
-        include: { folder: true },
-      });
-
-      if (data.content !== undefined) {
-        await syncLinksAndTags(id, data.content, userId);
+        updateData.slug = await generateUniqueSlug(data.title.trim(), userId, noteId);
       }
 
-      return updated as unknown as Note;
-    } catch {
-      // fallback
+      try {
+        const updated = await prisma.note.update({
+          where: { id: noteId, userId },
+          data: updateData,
+          include: { folder: true },
+        });
+
+        if (data.content !== undefined) {
+          await syncLinksAndTags(noteId, data.content, userId);
+        }
+
+        return updated as unknown as Note;
+      } catch (error) {
+        if (data.title === undefined || !isUniqueViolation(error) || attempt === 4) throw error;
+      }
     }
   }
 
-  // Memory fallback
-  const noteIndex = memoryStore.notes.findIndex((n) => n.id === id && n.userId === userId);
+  const noteIndex = memoryStore.notes.findIndex((n) => n.id === noteId && n.userId === userId);
   if (noteIndex === -1) return null;
 
   const note = memoryStore.notes[noteIndex];
+  const newSlug =
+    data.title !== undefined
+      ? await generateUniqueSlug(data.title.trim(), userId, noteId)
+      : undefined;
+
   const updatedNote: Note = {
     ...note,
     title: data.title !== undefined ? data.title.trim() : note.title,
@@ -370,18 +417,18 @@ export async function updateNote(
 }
 
 export async function deleteNote(id: string, userId = DEFAULT_USER_ID): Promise<boolean> {
-  const useDb = await checkPrisma();
-  if (useDb) {
-    try {
-      await prisma.note.delete({ where: { id, userId } });
-      return true;
-    } catch {
-      // fallback
-    }
+  const noteId = await resolveNoteId(id, userId);
+  if (!noteId) return false;
+
+  if (USE_DATABASE) {
+    await prisma.note.delete({ where: { id: noteId, userId } });
+    return true;
   }
 
   const initialLen = memoryStore.notes.length;
-  memoryStore.notes = memoryStore.notes.filter((n) => !(n.id === id && n.userId === userId));
+  memoryStore.notes = memoryStore.notes.filter(
+    (n) => !(n.id === noteId && n.userId === userId)
+  );
   return memoryStore.notes.length < initialLen;
 }
 
@@ -396,17 +443,19 @@ export async function getGraphData(userId = DEFAULT_USER_ID): Promise<GraphData>
 
   const nodes: GraphNode[] = [];
   const links: GraphLink[] = [];
-  const noteMap = new Map<string, Note>();
   const slugMap = new Map<string, Note>();
   const titleMap = new Map<string, Note>();
+  // Düğüm ağırlığını artırırken `nodes.find()` kullanmak toplamı
+  // notlar × bağlantılar × düğüm karmaşıklığına çıkarıyordu; ID ile
+  // doğrudan erişim için indeks tutuyoruz.
+  const nodeById = new Map<string, GraphNode>();
 
   // Notları düğüm olarak ekle
   for (const note of notes) {
-    noteMap.set(note.id, note);
     slugMap.set(note.slug, note);
     titleMap.set(note.title.toLowerCase(), note);
 
-    nodes.push({
+    const node: GraphNode = {
       id: note.id,
       title: note.title,
       slug: note.slug,
@@ -414,7 +463,9 @@ export async function getGraphData(userId = DEFAULT_USER_ID): Promise<GraphData>
       group: note.folderId ? folderMap.get(note.folderId) || "Genel" : "Genel",
       val: 1, // degree arttıkça güncellenecek
       isPhantom: false,
-    });
+    };
+    nodes.push(node);
+    nodeById.set(node.id, node);
   }
 
   // Henüz var olmayan (Phantom) notları takip etmek için
@@ -436,8 +487,8 @@ export async function getGraphData(userId = DEFAULT_USER_ID): Promise<GraphData>
         });
 
         // Düğüm ağırlıklarını (val) artır
-        const sourceNode = nodes.find((n) => n.id === note.id);
-        const targetNodeObj = nodes.find((n) => n.id === targetNote.id);
+        const sourceNode = nodeById.get(note.id);
+        const targetNodeObj = nodeById.get(targetNote.id);
         if (sourceNode) sourceNode.val = (sourceNode.val || 1) + 1;
         if (targetNodeObj) targetNodeObj.val = (targetNodeObj.val || 1) + 1.5;
       } else {
@@ -449,14 +500,16 @@ export async function getGraphData(userId = DEFAULT_USER_ID): Promise<GraphData>
           phantomId = `phantom-${slugify(link.targetTitle)}`;
           phantomTitles.set(phantomKey, phantomId);
 
-          nodes.push({
+          const phantomNode: GraphNode = {
             id: phantomId,
             title: link.targetTitle,
             slug: slugify(link.targetTitle),
             group: "Oluşturulmamış",
             val: 0.8,
             isPhantom: true,
-          });
+          };
+          nodes.push(phantomNode);
+          nodeById.set(phantomId, phantomNode);
         }
 
         links.push({
@@ -476,36 +529,30 @@ export async function getGraphData(userId = DEFAULT_USER_ID): Promise<GraphData>
 // ----------------------------------------------------
 
 export async function getAllFolders(userId = DEFAULT_USER_ID): Promise<Folder[]> {
-  const useDb = await checkPrisma();
-  if (useDb) {
-    try {
-      const folders = await prisma.folder.findMany({
-        where: { userId },
-        include: { notes: { select: { id: true, title: true, slug: true } } },
-      });
-      return folders as unknown as Folder[];
-    } catch {
-      // fallback
-    }
+  if (USE_DATABASE) {
+    const folders = await prisma.folder.findMany({
+      where: { userId },
+      include: { notes: { select: { id: true, title: true, slug: true } } },
+    });
+    return folders as unknown as Folder[];
   }
   return memoryStore.folders.filter((f) => f.userId === userId);
 }
 
-export async function createFolder(name: string, parentId: string | null = null, userId = DEFAULT_USER_ID): Promise<Folder> {
-  const useDb = await checkPrisma();
-  if (useDb) {
-    try {
-      const folder = await prisma.folder.create({
-        data: { name, parentId, userId },
-      });
-      return folder as unknown as Folder;
-    } catch {
-      // fallback
-    }
+export async function createFolder(
+  name: string,
+  parentId: string | null = null,
+  userId = DEFAULT_USER_ID
+): Promise<Folder> {
+  if (USE_DATABASE) {
+    const folder = await prisma.folder.create({
+      data: { name, parentId, userId },
+    });
+    return folder as unknown as Folder;
   }
 
   const folder: Folder = {
-    id: `folder-${Date.now()}`,
+    id: crypto.randomUUID(),
     name,
     parentId,
     userId,
@@ -540,31 +587,33 @@ export async function updateFolder(
   data: { name?: string; parentId?: string | null },
   userId = DEFAULT_USER_ID
 ): Promise<Folder | null | "cycle"> {
-  const useDb = await checkPrisma();
-  if (useDb) {
-    try {
-      if (data.parentId !== undefined) {
-        const allFolders = await prisma.folder.findMany({
-          where: { userId },
-          select: { id: true, parentId: true },
-        });
-        if (wouldCreateCycle(allFolders, id, data.parentId)) {
-          return "cycle";
-        }
-      }
-
-      const updateData: Record<string, unknown> = { updatedAt: new Date() };
-      if (data.name !== undefined) updateData.name = data.name.trim();
-      if (data.parentId !== undefined) updateData.parentId = data.parentId;
-
-      const updated = await prisma.folder.update({
-        where: { id },
-        data: updateData,
+  if (USE_DATABASE) {
+    if (data.parentId !== undefined) {
+      const allFolders = await prisma.folder.findMany({
+        where: { userId },
+        select: { id: true, parentId: true },
       });
-      return updated as unknown as Folder;
-    } catch {
-      // fallback
+      if (wouldCreateCycle(allFolders, id, data.parentId)) {
+        return "cycle";
+      }
     }
+
+    const updateData: Record<string, unknown> = { updatedAt: new Date() };
+    if (data.name !== undefined) updateData.name = data.name.trim();
+    if (data.parentId !== undefined) updateData.parentId = data.parentId;
+
+    // `userId` kapsamı zorunlu (bkz. updateNote).
+    const existing = await prisma.folder.findFirst({
+      where: { id, userId },
+      select: { id: true },
+    });
+    if (!existing) return null;
+
+    const updated = await prisma.folder.update({
+      where: { id, userId },
+      data: updateData,
+    });
+    return updated as unknown as Folder;
   }
 
   const folder = memoryStore.folders.find((f) => f.id === id && f.userId === userId);
@@ -583,33 +632,23 @@ export async function updateFolder(
 }
 
 export async function deleteFolder(id: string, userId = DEFAULT_USER_ID): Promise<boolean> {
-  const useDb = await checkPrisma();
-  if (useDb) {
-    try {
-      await prisma.folder.delete({
-        where: { id, userId },
-      });
-      return true;
-    } catch {
-      // fallback
-    }
+  if (USE_DATABASE) {
+    const existing = await prisma.folder.findFirst({
+      where: { id, userId },
+      select: { id: true },
+    });
+    if (!existing) return false;
+
+    // Alt klasörler şemadaki `onDelete: Cascade` ile birlikte silinir,
+    // notlar `onDelete: SetNull` ile klasörsüz kalır.
+    await prisma.folder.delete({ where: { id, userId } });
+    return true;
   }
 
   const index = memoryStore.folders.findIndex((f) => f.id === id && f.userId === userId);
   if (index === -1) return false;
 
-  // Alt klasörleri ve bu klasöre ait notları güvenli şekilde temizle
-  const folderIdsToDelete = new Set<string>([id]);
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const f of memoryStore.folders) {
-      if (f.parentId && folderIdsToDelete.has(f.parentId) && !folderIdsToDelete.has(f.id)) {
-        folderIdsToDelete.add(f.id);
-        changed = true;
-      }
-    }
-  }
+  const folderIdsToDelete = collectFolderSubtreeIds(memoryStore.folders, id);
 
   memoryStore.notes.forEach((n) => {
     if (n.folderId && folderIdsToDelete.has(n.folderId)) {
@@ -621,7 +660,10 @@ export async function deleteFolder(id: string, userId = DEFAULT_USER_ID): Promis
   return true;
 }
 
-export async function searchNotes(query: string, userId = DEFAULT_USER_ID): Promise<SearchResult[]> {
+export async function searchNotes(
+  query: string,
+  userId = DEFAULT_USER_ID
+): Promise<SearchResult[]> {
   const notes = await getAllNotes(userId);
   const folders = await getAllFolders(userId);
   const folderMap = new Map(folders.map((f) => [f.id, f.name]));
@@ -650,7 +692,10 @@ export async function searchNotes(query: string, userId = DEFAULT_USER_ID): Prom
       if (matchIndex !== -1) {
         const start = Math.max(0, matchIndex - 40);
         const end = Math.min(n.content.length, matchIndex + q.length + 60);
-        preview = (start > 0 ? "..." : "") + n.content.slice(start, end).replace(/[#*`_[\]]/g, "") + (end < n.content.length ? "..." : "");
+        preview =
+          (start > 0 ? "..." : "") +
+          n.content.slice(start, end).replace(/[#*`_[\]]/g, "") +
+          (end < n.content.length ? "..." : "");
       } else {
         preview = n.content.slice(0, 120).replace(/[#*`_[\]]/g, "");
       }
@@ -669,46 +714,108 @@ export async function searchNotes(query: string, userId = DEFAULT_USER_ID): Prom
 // ----------------------------------------------------
 // LİNKLERİ VE ETİKETLERİ SENKRONİZE ET (Postgres için)
 // ----------------------------------------------------
+/**
+ * Bir notun wikilink ve etiketlerini yeniden yazar.
+ *
+ * Tamamı tek bir işlemde çalışır: önceki sürüm bağlantıları silip tek tek
+ * yeniden oluşturuyordu ve araya giren bir hata notu bağlantısız bırakıyordu.
+ * Ayrıca `NoteLink` üzerindeki `@@unique([sourceNoteId, targetNoteId])` kısıtı
+ * yüzünden aynı nota çözülen iki farklı wikilink (`[[Not A]]` ve `[[Not-A]]`)
+ * benzersizlik ihlali doğuruyor, hata yutulduğu için etiket senkronizasyonuna
+ * hiç sıra gelmiyordu — notun bütün etiketleri sessizce kayboluyordu. Hedefler
+ * artık yazılmadan önce ID'ye göre tekilleştiriliyor.
+ */
 async function syncLinksAndTags(noteId: string, content: string, userId: string) {
-  try {
-    const extractedLinks = extractWikiLinks(content);
-    const extractedTags = extractTags(content);
+  const extractedLinks = extractWikiLinks(content);
+  const extractedTags = extractTags(content);
 
-    // Mevcut linkleri temizle
-    await prisma.noteLink.deleteMany({ where: { sourceNoteId: noteId } });
-
-    // Linkleri kaydet
-    for (const link of extractedLinks) {
-      const targetNote = await prisma.note.findFirst({
+  // Hedef notları tek sorguda topla (bağlantı başına ayrı sorgu yerine).
+  const targetNotes = extractedLinks.length
+    ? await prisma.note.findMany({
         where: {
           userId,
-          OR: [{ slug: link.slug }, { title: { equals: link.targetTitle, mode: "insensitive" } }],
+          OR: [
+            { slug: { in: extractedLinks.map((l) => l.slug) } },
+            { title: { in: extractedLinks.map((l) => l.targetTitle), mode: "insensitive" } },
+          ],
         },
-      });
+        select: { id: true, slug: true, title: true },
+      })
+    : [];
 
-      await prisma.noteLink.create({
-        data: {
-          sourceNoteId: noteId,
-          targetNoteId: targetNote?.id || null,
-          targetTitle: link.targetTitle,
-        },
-      });
+  const bySlug = new Map(targetNotes.map((n) => [n.slug, n]));
+  const byTitle = new Map(targetNotes.map((n) => [n.title.toLowerCase(), n]));
+
+  // `[sourceNoteId, targetNoteId]` benzersiz olduğu için çözülmüş hedefleri
+  // ID'ye göre tekilleştir. Çözülemeyen (phantom) bağlantılarda `targetNoteId`
+  // null kalır; Postgres'te null'lar benzersizlik açısından farklı sayıldığından
+  // bunlar başlığa göre tekilleştirilir.
+  const resolved = new Map<string, string>(); // targetNoteId -> targetTitle
+  const phantom = new Map<string, string>(); // lowercased title -> targetTitle
+
+  for (const link of extractedLinks) {
+    const target = bySlug.get(link.slug) || byTitle.get(link.targetTitle.toLowerCase());
+    if (target) {
+      if (!resolved.has(target.id)) resolved.set(target.id, link.targetTitle);
+    } else {
+      const key = link.targetTitle.toLowerCase();
+      if (!phantom.has(key)) phantom.set(key, link.targetTitle);
     }
-
-    // Etiketleri senkronize et
-    await prisma.noteTag.deleteMany({ where: { noteId } });
-    for (const tagName of extractedTags) {
-      const tag = await prisma.tag.upsert({
-        where: { userId_name: { userId, name: tagName } },
-        update: {},
-        create: { name: tagName, userId },
-      });
-
-      await prisma.noteTag.create({
-        data: { noteId, tagId: tag.id },
-      });
-    }
-  } catch (error) {
-    console.error("Link ve etiket senkronizasyon hatası:", error);
   }
+
+  const tagNames = Array.from(new Set(extractedTags));
+
+  await prisma.$transaction(async (tx) => {
+    await tx.noteLink.deleteMany({ where: { sourceNoteId: noteId } });
+
+    const linkRows = [
+      ...Array.from(resolved, ([targetNoteId, targetTitle]) => ({
+        sourceNoteId: noteId,
+        targetNoteId,
+        targetTitle,
+      })),
+      ...Array.from(phantom.values(), (targetTitle) => ({
+        sourceNoteId: noteId,
+        targetNoteId: null,
+        targetTitle,
+      })),
+    ];
+
+    if (linkRows.length) {
+      await tx.noteLink.createMany({ data: linkRows });
+    }
+
+    await tx.noteTag.deleteMany({ where: { noteId } });
+
+    if (tagNames.length) {
+      // Etiketler kullanıcı genelinde paylaşıldığı için önce var olanları çek,
+      // eksikleri toplu oluştur.
+      const existingTags = await tx.tag.findMany({
+        where: { userId, name: { in: tagNames } },
+        select: { id: true, name: true },
+      });
+      const existingByName = new Map(existingTags.map((t) => [t.name, t.id]));
+
+      const missing = tagNames.filter((name) => !existingByName.has(name));
+      if (missing.length) {
+        await tx.tag.createMany({
+          data: missing.map((name) => ({ name, userId })),
+          skipDuplicates: true,
+        });
+        const created = await tx.tag.findMany({
+          where: { userId, name: { in: missing } },
+          select: { id: true, name: true },
+        });
+        for (const t of created) existingByName.set(t.name, t.id);
+      }
+
+      await tx.noteTag.createMany({
+        data: tagNames
+          .map((name) => existingByName.get(name))
+          .filter((tagId): tagId is string => Boolean(tagId))
+          .map((tagId) => ({ noteId, tagId })),
+        skipDuplicates: true,
+      });
+    }
+  });
 }

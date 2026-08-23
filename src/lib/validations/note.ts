@@ -1,12 +1,19 @@
 import { z } from "zod";
 
+// Not içeriği için üst sınır. Sınırsız bırakıldığında tek bir istek yüzlerce
+// megabaytlık bir not yazabiliyor; `GET /api/notes` bütün notların içeriğini
+// döndürdüğü ve uygulama her açılışta bu rotayı çağırdığı için şişkin tek bir
+// not tüm kasayı kullanılamaz hale getiriyor.
+const MAX_CONTENT_LENGTH = 1_000_000;
+const contentTooLong = `Not içeriği en fazla ${MAX_CONTENT_LENGTH} karakter olabilir`;
+
 export const createNoteSchema = z.object({
   title: z
     .string({ message: "Not başlığı gereklidir" })
     .min(1, "Not başlığı boş olamaz")
     .max(255, "Not başlığı en fazla 255 karakter olabilir")
     .trim(),
-  content: z.string().optional().default(""),
+  content: z.string().max(MAX_CONTENT_LENGTH, contentTooLong).optional().default(""),
   folderId: z.string().nullable().optional(),
 });
 
@@ -17,7 +24,7 @@ export const updateNoteSchema = z.object({
     .max(255, "Not başlığı en fazla 255 karakter olabilir")
     .trim()
     .optional(),
-  content: z.string().optional(),
+  content: z.string().max(MAX_CONTENT_LENGTH, contentTooLong).optional(),
   folderId: z.string().nullable().optional(),
   isPinned: z.boolean().optional(),
   isArchived: z.boolean().optional(),

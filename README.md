@@ -137,6 +137,12 @@ bun run dev
 
 Head to [http://localhost:3000](http://localhost:3000) in your browser and start using Bluejay!
 
+> **Why `-H 127.0.0.1`?** The `dev` and `start` scripts bind to loopback on purpose.
+> Next.js defaults to `0.0.0.0`, which exposes the app to everyone on your network —
+> and Bluejay currently has **no authentication**: every request runs as the same
+> default user, so anyone who can reach the port can read, edit, and delete every note.
+> Don't remove the flag until an auth layer is in place.
+
 ---
 
 ## 📦 Available Commands
