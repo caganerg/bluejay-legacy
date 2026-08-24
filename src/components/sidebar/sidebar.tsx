@@ -64,8 +64,9 @@ export function Sidebar({
     }));
   };
 
-  // Başarısız bir istek arayüzde başarılı gibi görünmemeli: sunucu 429 ya da 500
-  // dönse bile eskiden liste tazeleniyor, silmede ana sayfaya yönlendiriliyordu.
+  // A failed request must not look successful in the UI: even when the server
+  // returned 429 or 500, the list used to refresh and a delete still navigated
+  // back to the home page.
   const reportFailure = async (res: Response, fallback: string) => {
     const data = await res.json().catch(() => null);
     const message = data?.error || fallback;
@@ -74,20 +75,21 @@ export function Sidebar({
   };
 
   const handleLogout = async () => {
-    // Kilitleme başarısızsa giriş ekranına gitmek yanıltıcı olur: oturum hâlâ
-    // açıktır. Yalnızca sunucu oturumu gerçekten geçersiz kıldıysa yönlendir.
+    // If locking fails, going to the login screen would be misleading: the
+    // session is still open. Only redirect once the server has really
+    // invalidated the session.
     try {
       const res = await fetch("/api/auth/logout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
       if (!res.ok) {
-        await reportFailure(res, "Kasa kilitlenemedi.");
+        await reportFailure(res, "Could not lock the vault.");
         return;
       }
     } catch (err) {
-      console.error("Çıkış yapılamadı:", err);
-      alert("Kasa kilitlenemedi: sunucuya ulaşılamadı.");
+      console.error("Failed to sign out:", err);
+      alert("Could not lock the vault: the server could not be reached.");
       return;
     }
 
@@ -98,12 +100,12 @@ export function Sidebar({
   const handleDeleteNote = async (e: React.MouseEvent, noteId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!confirm("Bu notu silmek istediğinize emin misiniz?")) return;
+    if (!confirm("Are you sure you want to delete this note?")) return;
 
     try {
       const res = await fetch(`/api/notes/${noteId}`, { method: "DELETE" });
       if (!res.ok) {
-        await reportFailure(res, "Not silinemedi.");
+        await reportFailure(res, "Could not delete the note.");
         return;
       }
       onRefresh();
@@ -112,8 +114,8 @@ export function Sidebar({
         router.push("/");
       }
     } catch (err) {
-      console.error("Not silinirken hata:", err);
-      alert("Not silinemedi: sunucuya ulaşılamadı.");
+      console.error("Failed to delete the note:", err);
+      alert("Could not delete the note: the server could not be reached.");
     }
   };
 
@@ -121,38 +123,38 @@ export function Sidebar({
     e.preventDefault();
     e.stopPropagation();
 
-    // Şemadaki `onDelete: Cascade` alt klasörleri gerçekten siliyor; notlar ise
-    // `onDelete: SetNull` ile klasörsüz kalıyor. Onay metni eskiden alt
-    // klasörlerin de korunacağını söylüyordu — kullanıcı korunacağı söylenen
-    // klasör hiyerarşisini kaybediyordu.
+    // `onDelete: Cascade` in the schema really does delete the subfolders, while
+    // notes are left without a folder via `onDelete: SetNull`. The confirmation
+    // text used to claim the subfolders would be preserved too — so the user lost
+    // a folder hierarchy they had been told was safe.
     const subtree = collectFolderSubtreeIds(folders, folder.id);
     const subfolderCount = subtree.size - 1;
     const noteCount = notes.filter((n) => n.folderId && subtree.has(n.folderId)).length;
 
     const details = [
       subfolderCount > 0
-        ? `${subfolderCount} alt klasör de KALICI OLARAK SİLİNECEK`
+        ? `${subfolderCount} subfolder(s) will also be PERMANENTLY DELETED`
         : null,
-      noteCount > 0 ? `${noteCount} not klasörsüz olarak korunacak` : null,
+      noteCount > 0 ? `${noteCount} note(s) will be kept, without a folder` : null,
     ].filter(Boolean);
 
     const message = details.length
-      ? `"${folder.name}" klasörü silinsin mi?\n\n• ${details.join("\n• ")}`
-      : `"${folder.name}" klasörü silinsin mi? (Klasör boş)`;
+      ? `Delete the folder "${folder.name}"?\n\n• ${details.join("\n• ")}`
+      : `Delete the folder "${folder.name}"? (The folder is empty)`;
 
     if (!confirm(message)) return;
 
     try {
       const res = await fetch(`/api/folders/${folder.id}`, { method: "DELETE" });
       if (!res.ok) {
-        await reportFailure(res, "Klasör silinemedi.");
+        await reportFailure(res, "Could not delete the folder.");
         return;
       }
       onRefresh();
       window.dispatchEvent(new Event("vault-updated"));
     } catch (err) {
-      console.error("Klasör silinirken hata:", err);
-      alert("Klasör silinemedi: sunucuya ulaşılamadı.");
+      console.error("Failed to delete the folder:", err);
+      alert("Could not delete the folder: the server could not be reached.");
     }
   };
 
@@ -166,14 +168,14 @@ export function Sidebar({
         body: JSON.stringify({ isPinned: !note.isPinned }),
       });
       if (!res.ok) {
-        await reportFailure(res, "Sabitleme güncellenemedi.");
+        await reportFailure(res, "Could not update the pin.");
         return;
       }
       onRefresh();
       window.dispatchEvent(new Event("vault-updated"));
     } catch (err) {
-      console.error("Sabitleme güncellenemedi:", err);
-      alert("Sabitleme güncellenemedi: sunucuya ulaşılamadı.");
+      console.error("Failed to update the pin:", err);
+      alert("Could not update the pin: the server could not be reached.");
     }
   };
 
@@ -188,14 +190,14 @@ export function Sidebar({
         body: JSON.stringify({ folderId }),
       });
       if (!res.ok) {
-        await reportFailure(res, "Not taşınamadı.");
+        await reportFailure(res, "Could not move the note.");
         return;
       }
       onRefresh();
       window.dispatchEvent(new Event("vault-updated"));
     } catch (err) {
-      console.error("Not taşınamadı:", err);
-      alert("Not taşınamadı: sunucuya ulaşılamadı.");
+      console.error("Failed to move the note:", err);
+      alert("Could not move the note: the server could not be reached.");
     }
   };
 
@@ -204,14 +206,15 @@ export function Sidebar({
     const folder = folders.find((f) => f.id === folderId);
     if (folder && (folder.parentId || null) === parentId) return;
 
-    // Bir klasör kendi alt klasörünün içine taşınamaz (istemci tarafı ön kontrol).
-    // Sunucudaki `wouldCreateCycle` gibi burada da yürüyüş `seen` ile sınırlı:
-    // veri bozulup bir döngü içerirse sınırsız `while` sekmeyi kilitliyordu.
+    // A folder cannot be moved inside its own subtree (a client-side pre-check).
+    // As with `wouldCreateCycle` on the server, the walk is bounded with `seen`:
+    // if the data got corrupted and contains a cycle, an unbounded `while` would
+    // lock up the tab.
     const seen = new Set<string>();
     let cursor = parentId;
     while (cursor) {
       if (cursor === folderId) return;
-      if (seen.has(cursor)) return; // veride hâlihazırda döngü var: taşımayı reddet
+      if (seen.has(cursor)) return; // the data already contains a cycle: reject the move
       seen.add(cursor);
       const cursorFolder = folders.find((f) => f.id === cursor);
       cursor = cursorFolder?.parentId || null;
@@ -225,13 +228,13 @@ export function Sidebar({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        console.error(data?.error || "Klasör taşınamadı");
+        console.error(data?.error || "Could not move the folder");
         return;
       }
       onRefresh();
       window.dispatchEvent(new Event("vault-updated"));
     } catch (err) {
-      console.error("Klasör taşınamadı:", err);
+      console.error("Failed to move the folder:", err);
     }
   };
 
@@ -288,7 +291,7 @@ export function Sidebar({
     }
   };
 
-  // Klasörsüz notlar ve klasörlü notları grupla
+  // Group the unfiled notes separately from the ones inside folders
   const unfiledNotes = notes.filter((n) => !n.folderId);
   const pinnedNotes = notes.filter((n) => n.isPinned);
 
@@ -308,7 +311,7 @@ export function Sidebar({
 
   return (
     <aside className="w-64 shrink-0 border-r border-slate-800/80 bg-[#0c101b] flex flex-col h-screen select-none">
-      {/* Üst Bar: Uygulama Başlığı ve Hızlı İşlemler */}
+      {/* Top bar: app title and quick actions */}
       <div className="p-3.5 border-b border-slate-800/80 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2.5 font-semibold text-slate-100 group">
           <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-md shadow-indigo-500/20 group-hover:scale-105 transition-transform">
@@ -316,7 +319,7 @@ export function Sidebar({
           </div>
           <div className="flex flex-col">
             <span className="text-sm font-bold tracking-tight text-white leading-tight">Bluejay Notes</span>
-            <span className="text-[10px] text-slate-400">Dijital Not Kasası</span>
+            <span className="text-[10px] text-slate-400">Digital note vault</span>
           </div>
         </Link>
 
@@ -325,7 +328,7 @@ export function Sidebar({
             variant="ghost"
             size="icon"
             onClick={() => onOpenNewNote(null)}
-            title="Yeni Not (Hızlı)"
+            title="New note (quick)"
             className="h-7 w-7 text-slate-400 hover:text-white"
           >
             <Plus className="h-4 w-4" />
@@ -334,7 +337,7 @@ export function Sidebar({
             variant="ghost"
             size="icon"
             onClick={() => onOpenNewFolder(null)}
-            title="Yeni Klasör"
+            title="New folder"
             className="h-7 w-7 text-slate-400 hover:text-white"
           >
             <FolderPlus className="h-4 w-4" />
@@ -342,7 +345,7 @@ export function Sidebar({
         </div>
       </div>
 
-      {/* Arama & Graph View Butonları */}
+      {/* Search & Graph View buttons */}
       <div className="p-2 space-y-1 border-b border-slate-800/60">
         <button
           onClick={onOpenQuickSwitcher}
@@ -350,7 +353,7 @@ export function Sidebar({
         >
           <span className="flex items-center gap-2">
             <Search className="h-3.5 w-3.5 text-slate-400" />
-            Not ara...
+            Search notes...
           </span>
           <kbd className="text-[10px] bg-slate-800 px-1.5 py-0.5 rounded text-slate-400 border border-slate-700">
             Ctrl+K
@@ -367,23 +370,23 @@ export function Sidebar({
           )}
         >
           <Network className="h-3.5 w-3.5 text-purple-400" />
-          İlişki Grafiği (Graph View)
+          Knowledge Graph (Graph View)
         </Link>
       </div>
 
-      {/* Dosya Ağacı / Not Listesi */}
+      {/* File tree / note list */}
       <div
         className="flex-1 overflow-y-auto px-2 py-3 space-y-4"
         onDragOver={(e) => handleDragOverTarget(e, ROOT_DROP_TARGET)}
         onDragLeave={() => handleDragLeaveTarget(ROOT_DROP_TARGET)}
         onDrop={(e) => handleDropOnTarget(e, null)}
       >
-        {/* Sabitlenmiş Notlar (Varsa) */}
+        {/* Pinned notes (if any) */}
         {pinnedNotes.length > 0 && (
           <div>
             <div className="px-2 mb-1 text-[11px] font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
               <Pin className="h-3 w-3 text-indigo-400" />
-              Sabitlenenler
+              Pinned
             </div>
             <div className="space-y-0.5">
               {pinnedNotes.map((note) => (
@@ -401,11 +404,11 @@ export function Sidebar({
           </div>
         )}
 
-        {/* Klasörler ve İçerikleri (Ağaç Yapısı) */}
+        {/* Folders and their contents (tree structure) */}
         <div>
           <div className="px-2 mb-1.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wider flex items-center justify-between">
             <span>Gezgin (Vault)</span>
-            <span className="text-[10px] text-slate-600">{notes.length} not</span>
+            <span className="text-[10px] text-slate-600">{notes.length} notes</span>
           </div>
 
           <FolderTree
@@ -419,7 +422,7 @@ export function Sidebar({
             actions={treeActions}
           />
 
-          {/* Klasörsüz Notlar */}
+          {/* Unfiled notes */}
           {unfiledNotes.length > 0 && (
             <div className="pt-1 space-y-0.5">
               {unfiledNotes.map((note) => (
@@ -438,17 +441,17 @@ export function Sidebar({
 
           {folders.length === 0 && unfiledNotes.length === 0 && (
             <div className="py-6 px-3 text-center space-y-2">
-              <p className="text-xs text-slate-500">Henüz not bulunmuyor</p>
+              <p className="text-xs text-slate-500">No notes yet</p>
               <button
                 onClick={() => onOpenNewNote(null)}
                 className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-600/30 transition-colors"
               >
-                <Plus className="h-3 w-3" /> Not Ekle
+                <Plus className="h-3 w-3" /> Add a note
               </button>
             </div>
           )}
 
-          {/* Sürükleme sırasında görünen "köke taşı" alanı */}
+          {/* The "move to root" drop zone shown while dragging */}
           {isDragActive && (
             <div
               onDragOver={(e) => handleDragOverTarget(e, ROOT_DROP_TARGET)}
@@ -461,39 +464,39 @@ export function Sidebar({
                   : "border-slate-800 text-slate-600"
               )}
             >
-              Kök dizine taşı
+              Move to the root
             </div>
           )}
         </div>
       </div>
 
-      {/* Alt Bilgi */}
+      {/* Footer */}
       <div className="p-3 border-t border-slate-800/80 text-[11px] text-slate-500 flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span>Bulut Depolama Aktif</span>
+          <span>Cloud storage active</span>
         </div>
         <div className="flex items-center gap-1">
           {onOpenAbout && (
             <button
               onClick={onOpenAbout}
               className="flex items-center gap-1 text-slate-400 hover:text-indigo-300 transition-colors text-[10px] bg-slate-900/60 hover:bg-slate-800 px-2 py-0.5 rounded border border-slate-800"
-              title="Uygulama ve Lisans Hakkında"
+              title="About the app and its license"
             >
               <Info className="h-3 w-3" />
-              Hakkında
+              About
             </button>
           )}
-          {/* Parola tanımlı değilken kilitlemenin karşılığı yok: kasa yeniden
-              açılamayacağı için düğmeyi hiç göstermiyoruz. */}
+          {/* Locking means nothing when no password is set: the vault could not
+              be unlocked again, so we do not show the button at all. */}
           {authEnabled && (
             <button
               onClick={handleLogout}
               className="flex items-center gap-1 text-slate-400 hover:text-rose-300 transition-colors text-[10px] bg-slate-900/60 hover:bg-slate-800 px-2 py-0.5 rounded border border-slate-800"
-              title="Kasayı Kilitle (Çıkış)"
+              title="Lock the vault (sign out)"
             >
               <LogOut className="h-3 w-3" />
-              Kilitle
+              Lock
             </button>
           )}
         </div>
@@ -516,8 +519,8 @@ interface TreeActions {
   onDropOnTarget: (e: React.DragEvent, targetFolderId: string | null) => void;
 }
 
-// Klasörleri parentId ilişkisine göre gerçek bir ağaç olarak, sonsuz derinlikte
-// (alt klasörlerin alt klasörleri...) özyinelemeli şekilde render eder.
+// Renders the folders as a real tree based on the parentId relation,
+// recursively and to unlimited depth (subfolders of subfolders, and so on).
 function FolderTree({
   folders,
   notes,
@@ -580,7 +583,7 @@ function FolderTree({
                     e.stopPropagation();
                     actions.onOpenNewFolder(folder.id);
                   }}
-                  title="Bu klasöre alt klasör ekle"
+                  title="Add a subfolder to this folder"
                   className="p-1 rounded text-slate-400 hover:text-indigo-300 hover:bg-slate-700/80 transition-colors"
                 >
                   <FolderPlus className="h-3 w-3" />
@@ -590,14 +593,14 @@ function FolderTree({
                     e.stopPropagation();
                     actions.onOpenNewNote(folder.id);
                   }}
-                  title="Bu klasöre not ekle"
+                  title="Add a note to this folder"
                   className="p-1 rounded text-slate-400 hover:text-indigo-300 hover:bg-slate-700/80 transition-colors"
                 >
                   <Plus className="h-3 w-3" />
                 </button>
                 <button
                   onClick={(e) => actions.onDeleteFolder(e, folder)}
-                  title="Klasörü Sil"
+                  title="Delete folder"
                   className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-slate-700/80 transition-colors"
                 >
                   <Trash2 className="h-3 w-3" />
@@ -605,7 +608,7 @@ function FolderTree({
               </div>
             </div>
 
-            {/* Klasörün alt klasörleri ve notları */}
+            {/* The folder's subfolders and notes */}
             {!isCollapsed && (
               <div
                 onDragOver={(e) => actions.onDragOverTarget(e, folder.id)}
@@ -637,7 +640,7 @@ function FolderTree({
                 ))}
 
                 {folderNotes.length === 0 && !hasSubfolders && (
-                  <div className="py-1 px-2 text-[11px] text-slate-600 italic">Klasör boş</div>
+                  <div className="py-1 px-2 text-[11px] text-slate-600 italic">This folder is empty</div>
                 )}
               </div>
             )}
@@ -689,7 +692,7 @@ function NoteItem({
       <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
           onClick={onTogglePin}
-          title={note.isPinned ? "Sabitlemeyi Kaldır" : "Sabitle"}
+          title={note.isPinned ? "Unpin" : "Pin"}
           className={cn(
             "p-1 rounded hover:bg-slate-700/80 transition-colors",
             note.isPinned ? "text-indigo-400" : "text-slate-500 hover:text-slate-200"
@@ -699,7 +702,7 @@ function NoteItem({
         </button>
         <button
           onClick={onDelete}
-          title="Notu Sil"
+          title="Delete note"
           className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-slate-700/80 transition-colors"
         >
           <Trash2 className="h-3 w-3" />

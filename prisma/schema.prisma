@@ -8,7 +8,7 @@ generator client {
 }
 
 // ----------------------------------------------------
-// 1. KULLANICI MODELİ
+// 1. USER MODEL
 // ----------------------------------------------------
 
 model User {
@@ -29,7 +29,7 @@ model User {
 }
 
 // ----------------------------------------------------
-// 2. KLASÖR SİSTEMİ (Hiyerarşik / İç İçe)
+// 2. FOLDER SYSTEM (Hierarchical / Nested)
 // ----------------------------------------------------
 
 model Folder {
@@ -54,7 +54,7 @@ model Folder {
 }
 
 // ----------------------------------------------------
-// 3. NOT MODELİ (Markdown Yapısı)
+// 3. NOTE MODEL (Markdown Structure)
 // ----------------------------------------------------
 
 model Note {
@@ -72,11 +72,11 @@ model Note {
   folderId    String?
   folder      Folder?  @relation(fields: [folderId], references: [id], onDelete: SetNull)
 
-  // Çift Yönlü Linkleme (Graph View & Backlinks)
+  // Bi-directional linking (Graph View & Backlinks)
   outgoingLinks NoteLink[] @relation("SourceNote")
   incomingLinks NoteLink[] @relation("TargetNote")
 
-  // Etiketler
+  // Tags
   tags        NoteTag[]
 
   createdAt   DateTime @default(now())
@@ -90,7 +90,7 @@ model Note {
 }
 
 // ----------------------------------------------------
-// 4. NOTLAR ARASI REFERANSLAR (Wikilinks & Backlinks)
+// 4. REFERENCES BETWEEN NOTES (Wikilinks & Backlinks)
 // ----------------------------------------------------
 
 model NoteLink {
@@ -102,7 +102,7 @@ model NoteLink {
   targetNoteId  String?
   targetNote    Note?    @relation("TargetNote", fields: [targetNoteId], references: [id], onDelete: Cascade)
 
-  targetTitle   String?  // Henüz var olmayan bir nota referans verilirse başlığı tutulur
+  targetTitle   String?  // Holds the title when the reference points to a note that does not exist yet
 
   createdAt     DateTime @default(now())
 
@@ -114,7 +114,7 @@ model NoteLink {
 }
 
 // ----------------------------------------------------
-// 5. ETİKETLER
+// 5. TAGS
 // ----------------------------------------------------
 
 model Tag {

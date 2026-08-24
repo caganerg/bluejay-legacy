@@ -4,29 +4,31 @@ import * as React from "react";
 import { Note, Folder } from "@/types";
 import { slugify } from "@/lib/utils";
 
-// `/api/notes` zaten her notun tam içeriğini (title/content/folderId) döndürüyor.
-// Bu yüzden bir nota tıklandığında ağ isteğini beklemeye gerek yok: notu bu
-// önbellekten anında açıp, backlink gibi ek alanları arka planda tamamlıyoruz.
+// `/api/notes` already returns the full content of every note
+// (title/content/folderId). So there is no need to wait for a network request
+// when a note is clicked: we open it instantly from this cache and fill in extra
+// fields such as backlinks in the background.
 interface VaultContextValue {
   notes: Note[];
   folders: Folder[];
   loading: boolean;
   refresh: () => Promise<void>;
-  /** noteId; gerçek id, slug veya (wikilink'lerde olduğu gibi) başlık olabilir. */
+  /** noteId may be the real id, a slug, or (as in wikilinks) a title. */
   findNote: (noteId: string) => Note | null;
-  /** Detay isteği tamamlandığında (backlink'ler dahil) önbelleği tazeler. */
+  /** Refreshes the cache once a detail request completes (backlinks included). */
   primeNote: typeof primeNote;
 }
 
 const VaultContext = React.createContext<VaultContextValue | null>(null);
 
-// Rota değişimleri arasında (ve layout yeniden bağlandığında) kalıcı olsun diye
-// modül seviyesinde tutulan detay önbelleği.
+// A detail cache kept at module level so that it survives route changes (and
+// remounts of the layout).
 const noteDetailCache = new Map<string, Note>();
 
 /**
- * Elimizde tam bir not nesnesi olduğunda (detay isteği ya da oluşturma yanıtı)
- * önbelleğe koyar; böylece o nota geçildiğinde ekran anında çizilir.
+ * Puts a note into the cache whenever we hold a complete note object (from a
+ * detail request or a create response), so that navigating to it paints
+ * instantly.
  */
 export function primeNote(note: Note) {
   if (!note?.id) return;
@@ -40,7 +42,7 @@ function matchesNote(note: Note, rawId: string, decodedId: string, slugId: strin
     note.slug === rawId ||
     note.slug === decodedId ||
     note.slug === slugId ||
-    note.title.toLocaleLowerCase("tr-TR") === decodedId.toLocaleLowerCase("tr-TR")
+    note.title.toLowerCase() === decodedId.toLowerCase()
   );
 }
 
@@ -62,8 +64,8 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       setNotes(freshNotes);
       setFolders(foldersData.folders || []);
 
-      // Listeden gelen güncel alanları, daha önce detayı çekilmiş notlara yansıt;
-      // artık var olmayan (silinmiş) notları önbellekten düşür.
+      // Apply the fresh fields from the list onto notes whose details were
+      // fetched earlier, and evict notes that no longer exist (deleted).
       const freshIds = new Set(freshNotes.map((n) => n.id));
       for (const note of freshNotes) {
         const cached = noteDetailCache.get(note.id);
@@ -73,7 +75,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         if (!freshIds.has(id)) noteDetailCache.delete(id);
       }
     } catch (err) {
-      console.error("Vault verisi yüklenirken hata:", err);
+      console.error("Failed to load vault data:", err);
     } finally {
       setLoading(false);
     }
@@ -104,8 +106,8 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       }
       const slugId = slugify(decodedId);
 
-      // Önce detay önbelleği (backlink'ler burada), sonra liste. Liste daha
-      // güncel skaler alanlar taşıyabildiği için ikisini birleştiriyoruz.
+      // The detail cache first (backlinks live there), then the list. The list
+      // can carry fresher scalar fields, so we merge the two.
       const fromList = notes.find((n) => matchesNote(n, noteId, decodedId, slugId));
       const cached =
         noteDetailCache.get(noteId) ||
@@ -129,7 +131,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
 export function useVault(): VaultContextValue {
   const ctx = React.useContext(VaultContext);
   if (!ctx) {
-    throw new Error("useVault, VaultProvider içinde kullanılmalıdır");
+    throw new Error("useVault must be used within a VaultProvider");
   }
   return ctx;
 }

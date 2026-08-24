@@ -3,12 +3,12 @@ import { getGraphData } from "@/lib/notes-service";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 export async function GET(req: NextRequest) {
-  // Kasadaki bütün notların içeriğini ayrıştırdığı için en pahalı rota;
-  // sınırsız bırakıldığında ucuz bir hizmet dışı bırakma vektörüydü.
+  // The most expensive route, since it parses the content of every note in the
+  // vault; left unlimited it was a cheap denial-of-service vector.
   const rateLimit = checkRateLimit(req, 60, 60 * 1000);
   if (!rateLimit.success) {
     return NextResponse.json(
-      { error: "Çok fazla istek gönderildi. Lütfen bir süre sonra tekrar deneyin." },
+      { error: "Too many requests. Please try again in a little while." },
       { status: 429 }
     );
   }
@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
     const graphData = await getGraphData();
     return NextResponse.json(graphData);
   } catch (error) {
-    console.error("Graph verisi getirilemedi:", error);
-    return NextResponse.json({ error: "İlişki grafiği verisi alınamadı" }, { status: 500 });
+    console.error("Failed to fetch graph data:", error);
+    return NextResponse.json({ error: "Could not load the knowledge graph data" }, { status: 500 });
   }
 }

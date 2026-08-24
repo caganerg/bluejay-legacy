@@ -4,12 +4,12 @@ import { createNoteSchema } from "@/lib/validations/note";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 export async function GET(req: NextRequest) {
-  // Kasanın tamamını (bütün notların tam içeriğiyle) serileştiren rota;
-  // limitsiz bırakıldığında ucuz bir hizmet dışı bırakma vektörü.
+  // A route that serialises the whole vault (with the full content of every
+  // note); left unlimited it is a cheap denial-of-service vector.
   const rateLimit = checkRateLimit(req, 240, 60 * 1000);
   if (!rateLimit.success) {
     return NextResponse.json(
-      { error: "Çok fazla istek gönderildi. Lütfen bekleyin." },
+      { error: "Too many requests. Please wait a moment." },
       { status: 429 }
     );
   }
@@ -18,8 +18,8 @@ export async function GET(req: NextRequest) {
     const notes = await getAllNotes();
     return NextResponse.json({ notes });
   } catch (error) {
-    console.error("Notlar getirilemedi:", error);
-    return NextResponse.json({ error: "Notlar yüklenirken bir hata oluştu" }, { status: 500 });
+    console.error("Failed to fetch notes:", error);
+    return NextResponse.json({ error: "Something went wrong while loading the notes" }, { status: 500 });
   }
 }
 
@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
   const rateLimit = checkRateLimit(req, 60, 60 * 1000);
   if (!rateLimit.success) {
     return NextResponse.json(
-      { error: "Çok fazla istek gönderildi. Lütfen bir süre sonra tekrar deneyin." },
+      { error: "Too many requests. Please try again in a little while." },
       { status: 429 }
     );
   }
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     if (!parseResult.success) {
       return NextResponse.json(
         {
-          error: "Geçersiz veri",
+          error: "Invalid data",
           details: parseResult.error.issues.map((e) => e.message),
         },
         { status: 400 }
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
     const newNote = await createNote({ title, content, folderId });
     return NextResponse.json({ note: newNote }, { status: 201 });
   } catch (error) {
-    console.error("Not oluşturulamadı:", error);
-    return NextResponse.json({ error: "Not oluşturulurken bir hata oluştu" }, { status: 500 });
+    console.error("Failed to create the note:", error);
+    return NextResponse.json({ error: "Something went wrong while creating the note" }, { status: 500 });
   }
 }

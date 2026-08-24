@@ -25,7 +25,7 @@ export function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
             <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-md shadow-indigo-500/20">
               <Sparkles className="h-4 w-4 text-white" />
             </div>
-            <span>Bluejay Notes Hakkında</span>
+            <span>About Bluejay Notes</span>
           </DialogTitle>
         </DialogHeader>
 
@@ -33,13 +33,14 @@ export function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
           <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-2.5">
             <div className="flex items-center gap-2 text-indigo-400 font-semibold text-sm">
               <ShieldCheck className="h-4 w-4 text-emerald-400" />
-              <span>Lisans Bilgisi</span>
+              <span>License information</span>
             </div>
             <p className="text-xs text-slate-300 leading-relaxed">
-              Bu proje <strong className="text-white font-medium">MIT Lisansı</strong> ile lisanslanmıştır.
+              This project is licensed under the{" "}
+              <strong className="text-white font-medium">MIT License</strong>.
             </p>
             <p className="text-[11px] text-slate-400 leading-relaxed">
-              MIT License — Özgür ve açık kaynak kodlu yazılım standartlarına uygun olarak dağıtılmaktadır.
+              MIT License — distributed in accordance with free and open source software standards.
             </p>
           </div>
         </div>
@@ -51,7 +52,7 @@ export function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
             onClick={() => onOpenChange(false)}
             className="w-full sm:w-auto"
           >
-            Kapat
+            Close
           </Button>
         </DialogFooter>
       </DialogContent>

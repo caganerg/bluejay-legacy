@@ -57,7 +57,7 @@ export function NewNoteDialog({
         onCreated(data.note.id, data.note);
       }
     } catch (err) {
-      console.error("Not oluşturma hatası:", err);
+      console.error("Failed to create the note:", err);
     } finally {
       setLoading(false);
     }
@@ -69,31 +69,31 @@ export function NewNoteDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-slate-100">
             <FilePlus className="h-5 w-5 text-indigo-400" />
-            Yeni Not Oluştur
+            Create New Note
           </DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4 pt-2">
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-slate-300">Not Başlığı</label>
+            <label className="text-xs font-medium text-slate-300">Note title</label>
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="Örn: Proje Mimarisi, Fikirler..."
+              placeholder="e.g. Project Architecture, Ideas..."
               autoFocus
               required
             />
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-slate-300">Klasör (İsteğe bağlı)</label>
+            <label className="text-xs font-medium text-slate-300">Folder (optional)</label>
             <div className="relative">
               <select
                 value={folderId || ""}
                 onChange={(e) => setFolderId(e.target.value || null)}
                 className="flex h-9 w-full rounded-lg border border-slate-700/80 bg-slate-900/70 px-3 py-1 text-sm text-slate-200 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500"
               >
-                <option value="">Klasörsüz (Ana Dizin)</option>
+                <option value="">No folder (root)</option>
                 {flattenFoldersAsTree(folders).map(({ folder, depth }) => (
                   <option key={folder.id} value={folder.id}>
                     {"  ".repeat(depth)}
@@ -111,10 +111,10 @@ export function NewNoteDialog({
               onClick={() => handleOpenChange(false)}
               disabled={loading}
             >
-              İptal
+              Cancel
             </Button>
             <Button type="submit" disabled={!title.trim() || loading}>
-              {loading ? "Oluşturuluyor..." : "Notu Oluştur"}
+              {loading ? "Creating..." : "Create Note"}
             </Button>
           </DialogFooter>
         </form>

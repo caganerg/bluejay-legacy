@@ -6,32 +6,33 @@ import {
   verifySessionToken,
 } from "@/lib/auth";
 
-// Next.js 16'da `middleware.ts` konvansiyonu `proxy.ts` olarak yeniden
-// adlandırıldı ve dışa aktarılan fonksiyonun adı `proxy` oldu
-// (bkz. node_modules/next/dist/docs/01-app/02-guides/upgrading/version-16.md).
+// In Next.js 16 the `middleware.ts` convention was renamed to `proxy.ts` and
+// the exported function is now called `proxy`
+// (see node_modules/next/dist/docs/01-app/02-guides/upgrading/version-16.md).
 
 const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
-// Gövde taşıyan metotlar. JSON içerik türü şartı yalnızca bunlara uygulanır:
-// gövdesiz `DELETE` istekleri `Content-Type` göndermez ve bir HTML formu zaten
-// yalnızca GET/POST üretebildiği için DELETE bu yolla CSRF vektörü değildir
-// (tarayıcıdan siteler arası fetch DELETE ön kontrol tetikler, CORS başlığı da yok).
+// Methods that carry a body. The JSON content-type requirement applies only to
+// these: bodyless `DELETE` requests send no `Content-Type`, and since an HTML
+// form can only produce GET/POST, DELETE is not a CSRF vector this way (a
+// cross-site fetch DELETE from a browser triggers a preflight, and we send no
+// CORS headers).
 const BODY_METHODS = new Set(["POST", "PUT", "PATCH"]);
 
 /**
- * CSRF koruması.
+ * CSRF protection.
  *
- * `req.json()` gövdeyi `Content-Type`'a bakmadan ayrıştırdığı için
- * `enctype="text/plain"` kullanan bir HTML formu — tarayıcının ön kontrol
- * (preflight) göndermediği "basit istek" — API'ye kaynak doğrulaması olmadan
- * yazabiliyordu. İki katmanla kapatılıyor:
+ * Because `req.json()` parses the body without looking at `Content-Type`, an
+ * HTML form using `enctype="text/plain"` — a "simple request" for which the
+ * browser sends no preflight — could write to the API with no origin check. Two
+ * layers close this:
  *
- *  1. `Origin` varsa host ile eşleşmek zorunda. Tarayıcılar siteler arası
- *     POST/PUT/PATCH/DELETE isteklerinde bu başlığı her zaman gönderir.
- *     Başlığın hiç olmaması tarayıcı kaynaklı olmadığı anlamına gelir
- *     (curl, sunucudan sunucuya) — bunlar CSRF vektörü değildir.
- *  2. Yazma isteklerinde `Content-Type: application/json` şart. Bir HTML formu
- *     bu içerik türünü ön kontrol tetiklemeden gönderemez.
+ *  1. If `Origin` is present it must match the host. Browsers always send this
+ *     header on cross-site POST/PUT/PATCH/DELETE requests. The header being
+ *     absent entirely means the request did not come from a browser (curl,
+ *     server-to-server) — those are not CSRF vectors.
+ *  2. Write requests must use `Content-Type: application/json`. An HTML form
+ *     cannot send that content type without triggering a preflight.
  */
 function csrfRejection(request: NextRequest): NextResponse | null {
   if (!STATE_CHANGING_METHODS.has(request.method)) return null;
@@ -42,21 +43,21 @@ function csrfRejection(request: NextRequest): NextResponse | null {
     try {
       originHost = new URL(origin).host;
     } catch {
-      return jsonError("Geçersiz Origin başlığı", 403);
+      return jsonError("Invalid Origin header", 403);
     }
 
     const host = request.headers.get("host");
     if (!host || originHost !== host) {
-      return jsonError("İstek farklı bir kaynaktan geldiği için reddedildi", 403);
+      return jsonError("The request was rejected because it came from a different origin", 403);
     }
   } else if (request.headers.get("sec-fetch-site") === "cross-site") {
-    return jsonError("İstek farklı bir kaynaktan geldiği için reddedildi", 403);
+    return jsonError("The request was rejected because it came from a different origin", 403);
   }
 
   if (BODY_METHODS.has(request.method)) {
     const contentType = request.headers.get("content-type") ?? "";
     if (!contentType.split(";")[0].trim().toLowerCase().endsWith("/json")) {
-      return jsonError("Yazma istekleri 'Content-Type: application/json' gerektirir", 415);
+      return jsonError("Write requests require 'Content-Type: application/json'", 415);
     }
   }
 
@@ -70,13 +71,13 @@ function jsonError(message: string, status: number): NextResponse {
 function buildCsp(nonce: string): string {
   const isDev = process.env.NODE_ENV === "development";
 
-  // `style-src-attr 'unsafe-inline'`: Radix UI (Dialog, Popover, Tooltip)
-  // konumlandırma için satır içi `style` niteliği yazıyor. Bunlar `style-src-attr`
-  // kapsamında; script'ten farklı olarak satır içi stile izin vermek çok daha
-  // dar bir risk ve olmadan menüler/diyaloglar bozuluyor.
+  // `style-src-attr 'unsafe-inline'`: Radix UI (Dialog, Popover, Tooltip) writes
+  // inline `style` attributes for positioning. Those fall under
+  // `style-src-attr`; unlike scripts, allowing inline styles is a far narrower
+  // risk, and without it menus and dialogs break.
   //
-  // Geliştirmede `'unsafe-eval'` gerekiyor: React hata yığınlarını yeniden
-  // kurmak için `eval` kullanıyor. Üretimde gerekmiyor.
+  // `'unsafe-eval'` is needed in development: React uses `eval` to rebuild error
+  // stacks. It is not needed in production.
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ""}`,
@@ -92,7 +93,8 @@ function buildCsp(nonce: string): string {
   ].join("; ");
 }
 
-// Parola sorulmadan erişilebilen tek yollar: giriş ekranı ve onu besleyen rota.
+// The only paths reachable without a password: the login screen and the route
+// that backs it.
 const PUBLIC_PATHS = new Set(["/login", "/api/auth/login"]);
 
 function isApiPath(pathname: string): boolean {
@@ -100,25 +102,26 @@ function isApiPath(pathname: string): boolean {
 }
 
 /**
- * Oturum kontrolü. Uygulama tek bir kasayı sunduğu için kimlik değil erişim
- * doğrulanıyor: geçerli imzalı çerezi olmayan istekler sayfalarda giriş
- * ekranına yönlendiriliyor, API'de 401 alıyor.
+ * Session check. Since the app serves a single vault, it verifies access rather
+ * than identity: requests without a valid signed cookie are redirected to the
+ * login screen on pages, and get a 401 on the API.
  */
 function authRejection(request: NextRequest): NextResponse | null {
   const { pathname } = request.nextUrl;
 
-  // Üretimde parola yapılandırılmamışsa hizmet verme: korumasız dağıtılan bir
-  // kasa, ona erişebilen herkese açıktır.
+  // Refuse to serve if no password is configured in production: a vault
+  // deployed without protection is open to everyone who can reach it.
   if (AUTH_MISCONFIGURED) {
     return jsonError(
-      "Sunucu yapılandırılmamış: üretimde BLUEJAY_PASSWORD tanımlanmadan uygulama açılamaz.",
+      "Server not configured: the app cannot start in production without BLUEJAY_PASSWORD.",
       503
     );
   }
 
-  // Parola koruması kapalıyken giriş ekranı bir çıkmaz sokak: girilecek bir parola
-  // yok ve `/api/auth/login` her denemeyi 400 ile geri çevirir. Kasa zaten açık
-  // olduğuna göre kullanıcıyı orada bırakmak yerine kasaya geri gönderiyoruz.
+  // With password protection off, the login screen is a dead end: there is no
+  // password to enter and `/api/auth/login` rejects every attempt with a 400.
+  // Since the vault is open anyway, we send the user back to it instead of
+  // leaving them stranded there.
   if (!AUTH_ENABLED && pathname === "/login") {
     return NextResponse.redirect(new URL("/", request.url));
   }
@@ -127,7 +130,7 @@ function authRejection(request: NextRequest): NextResponse | null {
   if (verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value)) return null;
 
   if (isApiPath(pathname)) {
-    return jsonError("Oturum açmanız gerekiyor", 401);
+    return jsonError("You need to sign in", 401);
   }
 
   const loginUrl = new URL("/login", request.url);
@@ -145,8 +148,8 @@ export function proxy(request: NextRequest) {
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
   const csp = buildCsp(nonce);
 
-  // Nonce'u istek başlıklarına yazıyoruz; Next.js kendi enjekte ettiği
-  // script'lere bu değeri buradan okuyarak ekliyor.
+  // We write the nonce into the request headers; Next.js reads it from here and
+  // attaches it to the scripts it injects itself.
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-nonce", nonce);
   requestHeaders.set("Content-Security-Policy", csp);
@@ -157,7 +160,7 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Statik varlıkları dışarıda bırak; aksi halde CSS/JS/görsel istekleri de
-  // gereksiz yere bu koddan geçer.
+  // Exclude static assets; otherwise CSS/JS/image requests would needlessly pass
+  // through this code too.
   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };

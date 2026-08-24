@@ -9,9 +9,9 @@ const securityHeaders = [
     key: "Strict-Transport-Security",
     value: "max-age=63072000; includeSubDomains; preload",
   },
-  // Not: `X-XSS-Protection` bilerek yok. Modern tarayıcılarda kaldırıldı ve
-  // geçmişte kendisi zafiyet kaynağı oldu; yerini `proxy.ts` içindeki
-  // nonce tabanlı Content-Security-Policy alıyor.
+  // Note: `X-XSS-Protection` is deliberately absent. Modern browsers dropped it
+  // and it used to be a vulnerability of its own; the nonce-based
+  // Content-Security-Policy in `proxy.ts` takes its place.
   {
     key: "X-Frame-Options",
     value: "SAMEORIGIN",

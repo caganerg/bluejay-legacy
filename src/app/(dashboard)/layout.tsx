@@ -34,8 +34,8 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
     setNewFolderOpen(true);
   };
 
-  // Yeni not zaten API yanıtıyla elimizde; önbelleğe koyup anında açıyoruz,
-  // vault listesi arka planda tazeleniyor.
+  // The new note already came back in the API response; we put it in the cache
+  // and open it instantly while the vault list refreshes in the background.
   const handleNoteCreated = (noteId: string, note?: unknown) => {
     if (note) primeNote(note as Parameters<typeof primeNote>[0]);
     router.push(`/notes/${noteId}`);
@@ -44,7 +44,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#0a0d16] text-slate-100 antialiased selection:bg-indigo-500/30 selection:text-white">
-      {/* Sol Sidebar */}
+      {/* Left sidebar */}
       <Sidebar
         notes={notes}
         folders={folders}
@@ -56,12 +56,12 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
         onRefresh={refresh}
       />
 
-      {/* Ana Çalışma Alanı */}
+      {/* Main workspace */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden relative">
         {children}
       </main>
 
-      {/* Hızlı Arama & Komut Paleti (Ctrl+K) */}
+      {/* Quick search & command palette (Ctrl+K) */}
       <QuickSwitcher
         open={quickSwitcherOpen}
         onOpenChange={setQuickSwitcherOpen}
@@ -69,7 +69,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
         onOpenAbout={() => setAboutOpen(true)}
       />
 
-      {/* Yeni Not Oluşturma Modalı */}
+      {/* New note modal */}
       <NewNoteDialog
         open={newNoteOpen}
         onOpenChange={setNewNoteOpen}
@@ -78,7 +78,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
         onCreated={handleNoteCreated}
       />
 
-      {/* Yeni Klasör Oluşturma Modalı */}
+      {/* New folder modal */}
       <NewFolderDialog
         open={newFolderOpen}
         onOpenChange={setNewFolderOpen}
@@ -86,7 +86,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
         parentId={selectedParentForNewFolder}
       />
 
-      {/* Hakkında Modalı */}
+      {/* About modal */}
       <AboutDialog
         open={aboutOpen}
         onOpenChange={setAboutOpen}

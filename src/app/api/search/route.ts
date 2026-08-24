@@ -4,11 +4,11 @@ import { searchQuerySchema } from "@/lib/validations/note";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 export async function GET(req: NextRequest) {
-  // Arama için hafif rate limiting (dakikada 180 arama)
+  // Light rate limiting for search (180 searches per minute)
   const rateLimit = checkRateLimit(req, 180, 60 * 1000);
   if (!rateLimit.success) {
     return NextResponse.json(
-      { error: "Çok fazla arama isteği. Lütfen biraz bekleyin." },
+      { error: "Too many search requests. Please wait a moment." },
       { status: 429 }
     );
   }
@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
     const results = await searchNotes(query);
     return NextResponse.json({ results });
   } catch (error) {
-    console.error("Arama hatası:", error);
-    return NextResponse.json({ error: "Arama sırasında bir hata oluştu" }, { status: 500 });
+    console.error("Search error:", error);
+    return NextResponse.json({ error: "Something went wrong during the search" }, { status: 500 });
   }
 }

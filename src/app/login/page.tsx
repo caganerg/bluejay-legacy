@@ -27,18 +27,18 @@ function LoginForm() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        setError(data?.error || "Giriş yapılamadı.");
+        setError(data?.error || "Could not sign in.");
         setPassword("");
         return;
       }
 
-      // Açık yönlendirmeyi önlemek için yalnızca site içi yollara dön.
+      // Only follow same-site paths, to prevent an open redirect.
       const next = searchParams.get("next");
       const target = next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
       router.replace(target);
       router.refresh();
     } catch {
-      setError("Sunucuya ulaşılamadı.");
+      setError("Could not reach the server.");
     } finally {
       setPending(false);
     }
@@ -53,7 +53,7 @@ function LoginForm() {
           </div>
           <div className="space-y-1">
             <h1 className="text-xl font-bold tracking-tight text-white">Bluejay Notes</h1>
-            <p className="text-xs text-slate-400">Kasayı açmak için parolanı gir.</p>
+            <p className="text-xs text-slate-400">Enter your password to unlock the vault.</p>
           </div>
         </div>
 
@@ -64,10 +64,10 @@ function LoginForm() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Parola"
+              placeholder="Password"
               autoFocus
               autoComplete="current-password"
-              aria-label="Parola"
+              aria-label="Password"
               aria-invalid={Boolean(error)}
               className="w-full rounded-lg border border-slate-800 bg-slate-900/70 py-2.5 pl-10 pr-3 text-sm text-slate-100 placeholder:text-slate-600 focus:border-indigo-500/60 focus:outline-none focus:ring-1 focus:ring-indigo-500/40"
             />
@@ -85,7 +85,7 @@ function LoginForm() {
             className="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-sm gap-2 disabled:opacity-50"
           >
             {pending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            {pending ? "Kontrol ediliyor..." : "Kasayı Aç"}
+            {pending ? "Checking..." : "Unlock Vault"}
           </Button>
         </form>
       </div>
@@ -94,7 +94,7 @@ function LoginForm() {
 }
 
 export default function LoginPage() {
-  // `useSearchParams` bir Suspense sınırı gerektiriyor.
+  // `useSearchParams` requires a Suspense boundary.
   return (
     <React.Suspense fallback={<div className="min-h-screen bg-[#0a0d16]" />}>
       <LoginForm />

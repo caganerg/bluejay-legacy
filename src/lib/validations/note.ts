@@ -1,17 +1,17 @@
 import { z } from "zod";
 
-// Not içeriği için üst sınır. Sınırsız bırakıldığında tek bir istek yüzlerce
-// megabaytlık bir not yazabiliyor; `GET /api/notes` bütün notların içeriğini
-// döndürdüğü ve uygulama her açılışta bu rotayı çağırdığı için şişkin tek bir
-// not tüm kasayı kullanılamaz hale getiriyor.
+// Upper bound for note content. Left unbounded, a single request could write a
+// note hundreds of megabytes large; because `GET /api/notes` returns the content
+// of every note and the app calls that route on every load, one bloated note
+// makes the entire vault unusable.
 const MAX_CONTENT_LENGTH = 1_000_000;
-const contentTooLong = `Not içeriği en fazla ${MAX_CONTENT_LENGTH} karakter olabilir`;
+const contentTooLong = `Note content can be at most ${MAX_CONTENT_LENGTH} characters`;
 
 export const createNoteSchema = z.object({
   title: z
-    .string({ message: "Not başlığı gereklidir" })
-    .min(1, "Not başlığı boş olamaz")
-    .max(255, "Not başlığı en fazla 255 karakter olabilir")
+    .string({ message: "A note title is required" })
+    .min(1, "The note title cannot be empty")
+    .max(255, "The note title can be at most 255 characters")
     .trim(),
   content: z.string().max(MAX_CONTENT_LENGTH, contentTooLong).optional().default(""),
   folderId: z.string().nullable().optional(),
@@ -20,8 +20,8 @@ export const createNoteSchema = z.object({
 export const updateNoteSchema = z.object({
   title: z
     .string()
-    .min(1, "Not başlığı boş olamaz")
-    .max(255, "Not başlığı en fazla 255 karakter olabilir")
+    .min(1, "The note title cannot be empty")
+    .max(255, "The note title can be at most 255 characters")
     .trim()
     .optional(),
   content: z.string().max(MAX_CONTENT_LENGTH, contentTooLong).optional(),
@@ -32,18 +32,18 @@ export const updateNoteSchema = z.object({
 
 export const resolveNoteSchema = z.object({
   title: z
-    .string({ message: "Not başlığı gereklidir" })
-    .min(1, "Not başlığı boş olamaz")
-    .max(255, "Not başlığı en fazla 255 karakter olabilir")
+    .string({ message: "A note title is required" })
+    .min(1, "The note title cannot be empty")
+    .max(255, "The note title can be at most 255 characters")
     .trim(),
   sourceNoteTitle: z.string().max(255).optional(),
 });
 
 export const createFolderSchema = z.object({
   name: z
-    .string({ message: "Klasör adı gereklidir" })
-    .min(1, "Klasör adı boş olamaz")
-    .max(100, "Klasör adı en fazla 100 karakter olabilir")
+    .string({ message: "A folder name is required" })
+    .min(1, "The folder name cannot be empty")
+    .max(100, "The folder name can be at most 100 characters")
     .trim(),
   parentId: z.string().nullable().optional(),
 });
@@ -51,13 +51,13 @@ export const createFolderSchema = z.object({
 export const updateFolderSchema = z.object({
   name: z
     .string()
-    .min(1, "Klasör adı boş olamaz")
-    .max(100, "Klasör adı en fazla 100 karakter olabilir")
+    .min(1, "The folder name cannot be empty")
+    .max(100, "The folder name can be at most 100 characters")
     .trim()
     .optional(),
   parentId: z.string().nullable().optional(),
 });
 
 export const searchQuerySchema = z.object({
-  q: z.string().max(200, "Arama sorgusu en fazla 200 karakter olabilir").default(""),
+  q: z.string().max(200, "The search query can be at most 200 characters").default(""),
 });

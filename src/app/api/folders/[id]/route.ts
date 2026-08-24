@@ -10,7 +10,7 @@ export async function PATCH(
   const rateLimit = checkRateLimit(req, 120, 60 * 1000);
   if (!rateLimit.success) {
     return NextResponse.json(
-      { error: "Çok fazla güncelleme isteği gönderildi. Lütfen bekleyin." },
+      { error: "Too many update requests. Please wait a moment." },
       { status: 429 }
     );
   }
@@ -23,7 +23,7 @@ export async function PATCH(
     if (!parseResult.success) {
       return NextResponse.json(
         {
-          error: "Geçersiz klasör verisi",
+          error: "Invalid folder data",
           details: parseResult.error.issues.map((e) => e.message),
         },
         { status: 400 }
@@ -34,20 +34,20 @@ export async function PATCH(
 
     if (updated === "cycle") {
       return NextResponse.json(
-        { error: "Bir klasör kendi alt klasörünün içine taşınamaz" },
+        { error: "A folder cannot be moved inside one of its own subfolders" },
         { status: 400 }
       );
     }
 
     if (!updated) {
-      return NextResponse.json({ error: "Klasör bulunamadı" }, { status: 404 });
+      return NextResponse.json({ error: "Folder not found" }, { status: 404 });
     }
 
     return NextResponse.json({ folder: updated });
   } catch (error) {
-    console.error("Klasör güncellenemedi:", error);
+    console.error("Failed to update the folder:", error);
     return NextResponse.json(
-      { error: "Klasör güncellenirken bir hata oluştu" },
+      { error: "Something went wrong while updating the folder" },
       { status: 500 }
     );
   }
@@ -60,7 +60,7 @@ export async function DELETE(
   const rateLimit = checkRateLimit(req, 60, 60 * 1000);
   if (!rateLimit.success) {
     return NextResponse.json(
-      { error: "Çok fazla istek gönderildi. Lütfen bekleyin." },
+      { error: "Too many requests. Please wait a moment." },
       { status: 429 }
     );
   }
@@ -71,16 +71,16 @@ export async function DELETE(
 
     if (!success) {
       return NextResponse.json(
-        { error: "Klasör bulunamadı veya silinemedi" },
+        { error: "The folder was not found or could not be deleted" },
         { status: 404 }
       );
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Klasör silinemedi:", error);
+    console.error("Failed to delete the folder:", error);
     return NextResponse.json(
-      { error: "Klasör silinirken bir hata oluştu" },
+      { error: "Something went wrong while deleting the folder" },
       { status: 500 }
     );
   }
