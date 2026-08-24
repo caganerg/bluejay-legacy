@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { AUTH_ENABLED } from "@/lib/auth";
+import { AuthProvider } from "@/lib/auth-context";
 
 // `proxy.ts` her istekte taze bir nonce üretip CSP başlığına koyuyor. Next'in bu
 // nonce'u kendi enjekte ettiği script etiketlerine yazabilmesi için sayfanın
@@ -23,7 +25,7 @@ export default function RootLayout({
   return (
     <html lang="tr" className="dark">
       <body className="bg-[#0a0d16] text-slate-100 min-h-screen font-sans antialiased overflow-hidden">
-        {children}
+        <AuthProvider enabled={AUTH_ENABLED}>{children}</AuthProvider>
       </body>
     </html>
   );

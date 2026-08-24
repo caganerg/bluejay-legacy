@@ -116,6 +116,13 @@ function authRejection(request: NextRequest): NextResponse | null {
     );
   }
 
+  // Parola koruması kapalıyken giriş ekranı bir çıkmaz sokak: girilecek bir parola
+  // yok ve `/api/auth/login` her denemeyi 400 ile geri çevirir. Kasa zaten açık
+  // olduğuna göre kullanıcıyı orada bırakmak yerine kasaya geri gönderiyoruz.
+  if (!AUTH_ENABLED && pathname === "/login") {
+    return NextResponse.redirect(new URL("/", request.url));
+  }
+
   if (!AUTH_ENABLED || PUBLIC_PATHS.has(pathname)) return null;
   if (verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value)) return null;
 

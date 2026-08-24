@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { Note, Folder } from "@/types";
 import { cn, collectFolderSubtreeIds } from "@/lib/utils";
+import { useAuthEnabled } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 
 const DND_MIME = "application/x-bluejay-item";
@@ -51,6 +52,7 @@ export function Sidebar({
 }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const authEnabled = useAuthEnabled();
   const [collapsedFolders, setCollapsedFolders] = React.useState<Record<string, boolean>>({});
   const [dragOverTarget, setDragOverTarget] = React.useState<string | null>(null);
   const [isDragActive, setIsDragActive] = React.useState(false);
@@ -80,8 +82,6 @@ export function Sidebar({
     } catch (err) {
       console.error("Çıkış yapılamadı:", err);
     } finally {
-      // Parola koruması kapalıysa çıkış bir şey değiştirmez; yine de giriş
-      // ekranına götürüp durumu kullanıcıya gösteriyoruz.
       router.replace("/login");
       router.refresh();
     }
@@ -471,14 +471,18 @@ export function Sidebar({
               Hakkında
             </button>
           )}
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-1 text-slate-400 hover:text-rose-300 transition-colors text-[10px] bg-slate-900/60 hover:bg-slate-800 px-2 py-0.5 rounded border border-slate-800"
-            title="Kasayı Kilitle (Çıkış)"
-          >
-            <LogOut className="h-3 w-3" />
-            Kilitle
-          </button>
+          {/* Parola tanımlı değilken kilitlemenin karşılığı yok: kasa yeniden
+              açılamayacağı için düğmeyi hiç göstermiyoruz. */}
+          {authEnabled && (
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-1 text-slate-400 hover:text-rose-300 transition-colors text-[10px] bg-slate-900/60 hover:bg-slate-800 px-2 py-0.5 rounded border border-slate-800"
+              title="Kasayı Kilitle (Çıkış)"
+            >
+              <LogOut className="h-3 w-3" />
+              Kilitle
+            </button>
+          )}
         </div>
       </div>
     </aside>

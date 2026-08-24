@@ -165,6 +165,23 @@ Head to [http://localhost:3000](http://localhost:3000) in your browser and start
 If `BLUEJAY_PASSWORD` is set you'll be asked for it once; the session then lasts
 seven days, and **Kilitle** in the sidebar footer ends it.
 
+### Locking the vault
+
+The **Kilitle** button in the sidebar footer drops the session cookie and sends
+you back to the unlock screen. It only appears when `BLUEJAY_PASSWORD` is set —
+without a password there is nothing to unlock the vault with, so locking would
+leave you staring at a login form that rejects every attempt. For the same
+reason, `/login` redirects straight to the vault while protection is off.
+
+So if you want the lock button, set a password:
+
+```env
+BLUEJAY_PASSWORD="the-password-that-unlocks-your-vault"
+```
+
+then restart the server. Also set `AUTH_SECRET`; otherwise the signing key is
+derived from the password and every change of password logs out all sessions.
+
 > **Why `-H 127.0.0.1`?** The `dev` and `start` scripts bind to loopback on purpose.
 > Next.js defaults to `0.0.0.0`, which would expose the app to everyone on your
 > network. Set `BLUEJAY_PASSWORD`, put the app behind TLS, and set
