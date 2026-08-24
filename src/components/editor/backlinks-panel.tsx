@@ -24,7 +24,7 @@ export function BacklinksPanel({
   const router = useRouter();
   const [creatingTitle, setCreatingTitle] = React.useState<string | null>(null);
 
-  // Oluşturulmamış bağlantılar (Unresolved links)
+  // Unresolved links
   const unresolvedLinks = outgoingLinks.filter((l) => !l.targetNoteId && l.targetTitle);
   const resolvedOutgoing = outgoingLinks.filter((l) => l.targetNoteId);
 
@@ -36,7 +36,7 @@ export function BacklinksPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: title.trim(),
-          content: `# ${title.trim()}\n\nBu not [[${currentNoteTitle}]] üzerinden oluşturuldu.\n\n`,
+          content: `# ${title.trim()}\n\nThis note was created from [[${currentNoteTitle}]].\n\n`,
         }),
       });
       const data = await res.json();
@@ -46,7 +46,7 @@ export function BacklinksPanel({
         router.push(`/notes/${data.note.id}`);
       }
     } catch (err) {
-      console.error("Phantom not oluşturulamadı:", err);
+      console.error("Failed to create the phantom note:", err);
     } finally {
       setCreatingTitle(null);
     }
@@ -56,16 +56,16 @@ export function BacklinksPanel({
     <div className="mt-12 pt-6 border-t border-slate-800/80 space-y-6">
       <div className="flex items-center gap-2 text-sm font-semibold text-slate-300">
         <Link2 className="h-4 w-4 text-indigo-400" />
-        <span>İlişki ve Bağlantı Paneli (Graph & Backlinks)</span>
+        <span>Links &amp; Connections (Graph &amp; Backlinks)</span>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Geri Bağlantılar (Incoming Links / Backlinks) */}
+        {/* Incoming links / backlinks */}
         <div className="rounded-xl border border-slate-800/80 bg-slate-900/40 p-4 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
               <ArrowDownLeft className="h-3.5 w-3.5 text-emerald-400" />
-              Geri Bağlantılar (Backlinks)
+              Backlinks
             </span>
             <span className="text-xs text-slate-500 bg-slate-800/80 px-2 py-0.5 rounded-full">
               {incomingLinks.length}
@@ -73,7 +73,7 @@ export function BacklinksPanel({
           </div>
 
           {incomingLinks.length === 0 ? (
-            <p className="text-xs text-slate-500 italic">Bu nota henüz başka bir nottan link verilmemiş.</p>
+            <p className="text-xs text-slate-500 italic">No other note links to this one yet.</p>
           ) : (
             <div className="space-y-1.5">
               {incomingLinks.map((link) => (
@@ -84,21 +84,21 @@ export function BacklinksPanel({
                 >
                   <div className="flex items-center gap-2 truncate">
                     <FileText className="h-3.5 w-3.5 text-slate-500 group-hover:text-indigo-400" />
-                    <span className="font-medium truncate">{link.sourceNote?.title || "İsimsiz Not"}</span>
+                    <span className="font-medium truncate">{link.sourceNote?.title || "Untitled Note"}</span>
                   </div>
-                  <span className="text-[10px] text-slate-500 group-hover:text-indigo-300">Görüntüle →</span>
+                  <span className="text-[10px] text-slate-500 group-hover:text-indigo-300">View →</span>
                 </Link>
               ))}
             </div>
           )}
         </div>
 
-        {/* Giden Bağlantılar (Outgoing Links) */}
+        {/* Outgoing links */}
         <div className="rounded-xl border border-slate-800/80 bg-slate-900/40 p-4 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
               <ArrowUpRight className="h-3.5 w-3.5 text-indigo-400" />
-              Giden Bağlantılar (Outgoing Links)
+              Outgoing Links
             </span>
             <span className="text-xs text-slate-500 bg-slate-800/80 px-2 py-0.5 rounded-full">
               {outgoingLinks.length}
@@ -106,10 +106,10 @@ export function BacklinksPanel({
           </div>
 
           {outgoingLinks.length === 0 ? (
-            <p className="text-xs text-slate-500 italic">Bu notun içinde başka bir nota verilmiş `[[link]]` yok.</p>
+            <p className="text-xs text-slate-500 italic">This note contains no `[[link]]` to another note.</p>
           ) : (
             <div className="space-y-2">
-              {/* Var olan notlara linkler */}
+              {/* Links to existing notes */}
               {resolvedOutgoing.map((link) => (
                 <Link
                   key={link.id}
@@ -120,11 +120,11 @@ export function BacklinksPanel({
                     <FileText className="h-3.5 w-3.5 text-indigo-400" />
                     <span className="font-medium truncate">{link.targetNote?.title || link.targetTitle}</span>
                   </div>
-                  <span className="text-[10px] text-slate-500 group-hover:text-slate-300">Aç →</span>
+                  <span className="text-[10px] text-slate-500 group-hover:text-slate-300">Open →</span>
                 </Link>
               ))}
 
-              {/* Henüz oluşturulmamış (Unresolved) linkler */}
+              {/* Links that have not been created yet (unresolved) */}
               {unresolvedLinks.map((link) => (
                 <div
                   key={link.id}
@@ -133,7 +133,7 @@ export function BacklinksPanel({
                   <div className="flex items-center gap-1.5 truncate">
                     <HelpCircle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
                     <span className="truncate italic">[[{link.targetTitle}]]</span>
-                    <span className="text-[10px] text-amber-400/70">(Henüz yok)</span>
+                    <span className="text-[10px] text-amber-400/70">(Not yet created)</span>
                   </div>
 
                   <Button
@@ -144,7 +144,7 @@ export function BacklinksPanel({
                     className="h-6 text-[11px] px-2 border-amber-500/30 text-amber-300 hover:bg-amber-500/20"
                   >
                     <Plus className="h-3 w-3 mr-1" />
-                    {creatingTitle === link.targetTitle ? "Açılıyor..." : "Oluştur"}
+                    {creatingTitle === link.targetTitle ? "Creating..." : "Create"}
                   </Button>
                 </div>
               ))}

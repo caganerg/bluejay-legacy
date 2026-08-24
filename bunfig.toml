@@ -1,5 +1,5 @@
-# Tüm scriptleri Node yerine Bun runtime'ı ile çalıştır.
-# Bu olmadan node_modules/.bin altındaki shebang'ler (#!/usr/bin/env node)
-# sistemde Node aramaya çalışır — bu makinede Node kurulu değil.
+# Run every script with the Bun runtime instead of Node.
+# Without this, the shebangs under node_modules/.bin (#!/usr/bin/env node)
+# would look for Node on the system — and Node is not installed on this machine.
 [run]
 bun = true

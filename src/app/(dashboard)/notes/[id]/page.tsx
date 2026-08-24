@@ -15,11 +15,12 @@ export default function NoteDetailPage() {
 
   const { folders, loading: vaultLoading, findNote, refresh } = useVault();
 
-  // Sidebar için zaten yüklenmiş olan vault verisi notun tamamını içeriyor;
-  // ağ isteğini beklemeden anında gösteriyoruz.
+  // The vault data already loaded for the sidebar contains the whole note, so we
+  // render it instantly without waiting for the network request.
   const cachedNote = findNote(noteId);
 
-  // Detay isteğinden gelen (backlink'li) sürüm; gelene kadar cachedNote kullanılır.
+  // The version from the detail request (with backlinks); until it arrives,
+  // cachedNote is used.
   const [fetchedNote, setFetchedNote] = React.useState<Note | null>(null);
   const [notFound, setNotFound] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -40,7 +41,7 @@ export default function NoteDetailPage() {
           return;
         }
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || "Not yüklenemedi");
+        throw new Error(errData.error || "Could not load the note");
       }
 
       const data = await res.json();
@@ -51,12 +52,13 @@ export default function NoteDetailPage() {
         setError(null);
       }
     } catch (err: unknown) {
-      console.error("Not yükleme hatası:", err);
-      setError(err instanceof Error ? err.message : "Not yüklenemedi");
+      console.error("Failed to load the note:", err);
+      setError(err instanceof Error ? err.message : "Could not load the note");
     }
   }, [noteId]);
 
-  // Not değiştiğinde önceki notun detayını sıfırla ve arka planda tazele.
+  // When the note changes, reset the previous note's details and refresh in the
+  // background.
   React.useEffect(() => {
     setFetchedNote(null);
     setNotFound(false);
@@ -77,7 +79,7 @@ export default function NoteDetailPage() {
     });
 
     if (!res.ok) {
-      throw new Error("Not kaydedilemedi");
+      throw new Error("Could not save the note");
     }
 
     const data = await res.json();
@@ -93,13 +95,13 @@ export default function NoteDetailPage() {
   const [isCreatingMissing, setIsCreatingMissing] = React.useState(false);
 
   const displayTitle = React.useMemo(() => {
-    if (!noteId) return "Yeni Not";
+    if (!noteId) return "New Note";
     try {
       const decoded = decodeURIComponent(noteId);
-      // Slug'ı başlığa çevir (örn: yeni-fikirler -> Yeni Fikirler)
+      // Turn the slug into a title (e.g. new-ideas -> New Ideas)
       return decoded
         .split("-")
-        .map((w) => w.charAt(0).toLocaleUpperCase("tr-TR") + w.slice(1))
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
         .join(" ");
     } catch {
       return noteId;
@@ -123,20 +125,20 @@ export default function NoteDetailPage() {
         router.replace(`/notes/${data.note.id}`);
       }
     } catch (err) {
-      console.error("Not oluşturulamadı:", err);
+      console.error("Failed to create the note:", err);
     } finally {
       setIsCreatingMissing(false);
     }
   };
 
-  // Yükleme ekranı yalnızca elimizde hiç veri yokken görünür; önbellekten
-  // açılan notlarda hiç gösterilmez.
+  // The loading screen only appears when we have no data at all; it is never
+  // shown for notes opened from the cache.
   if (!note && !notFound && !error) {
     if (vaultLoading) {
       return (
         <div className="flex-1 flex flex-col items-center justify-center bg-[#0a0d16] text-slate-400 space-y-3">
           <Loader2 className="h-6 w-6 animate-spin text-indigo-400" />
-          <span className="text-xs">Not yükleniyor...</span>
+          <span className="text-xs">Loading note...</span>
         </div>
       );
     }
@@ -150,9 +152,11 @@ export default function NoteDetailPage() {
           <AlertCircle className="h-6 w-6" />
         </div>
         <div className="space-y-1.5">
-          <h2 className="text-lg font-bold text-white">Not Bulunamadı</h2>
+          <h2 className="text-lg font-bold text-white">Note Not Found</h2>
           <p className="text-xs text-slate-400 max-w-sm">
-            <strong className="text-slate-200 font-semibold">&quot;{displayTitle}&quot;</strong> başlıklı bir not henüz mevcut değil veya silinmiş.
+            A note titled{" "}
+            <strong className="text-slate-200 font-semibold">&quot;{displayTitle}&quot;</strong>{" "}
+            does not exist yet, or has been deleted.
           </p>
         </div>
         <div className="flex items-center gap-3 pt-2">
@@ -166,10 +170,10 @@ export default function NoteDetailPage() {
             ) : (
               <Plus className="h-3.5 w-3.5" />
             )}
-            <span>&quot;{displayTitle}&quot; Notunu Oluştur</span>
+            <span>Create the note &quot;{displayTitle}&quot;</span>
           </Button>
           <Button onClick={() => router.push("/")} variant="outline" className="text-xs border-slate-800 text-slate-300">
-            Ana Sayfaya Dön
+            Back to Home
           </Button>
         </div>
       </div>

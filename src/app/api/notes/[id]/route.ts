@@ -7,12 +7,12 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  // Bellek içi modda bu rota geri bağlantıları hesaplamak için kasadaki bütün
-  // notların içeriğini ayrıştırıyor; limitsiz kalan en pahalı okuma rotasıydı.
+  // In in-memory mode this route parses the content of every note in the vault
+  // to compute backlinks; it was the most expensive read route left unlimited.
   const rateLimit = checkRateLimit(req, 240, 60 * 1000);
   if (!rateLimit.success) {
     return NextResponse.json(
-      { error: "Çok fazla istek gönderildi. Lütfen bekleyin." },
+      { error: "Too many requests. Please wait a moment." },
       { status: 429 }
     );
   }
@@ -20,19 +20,19 @@ export async function GET(
   try {
     const { id } = await params;
     if (!id || typeof id !== "string") {
-      return NextResponse.json({ error: "Geçersiz not ID'si" }, { status: 400 });
+      return NextResponse.json({ error: "Invalid note ID" }, { status: 400 });
     }
 
     const note = await getNoteById(id);
 
     if (!note) {
-      return NextResponse.json({ error: "Not bulunamadı" }, { status: 404 });
+      return NextResponse.json({ error: "Note not found" }, { status: 404 });
     }
 
     return NextResponse.json({ note });
   } catch (error) {
-    console.error("Not detayı getirilemedi:", error);
-    return NextResponse.json({ error: "Not getirilirken bir hata oluştu" }, { status: 500 });
+    console.error("Failed to fetch the note details:", error);
+    return NextResponse.json({ error: "Something went wrong while fetching the note" }, { status: 500 });
   }
 }
 
@@ -43,7 +43,7 @@ export async function PUT(
   const rateLimit = checkRateLimit(req, 120, 60 * 1000);
   if (!rateLimit.success) {
     return NextResponse.json(
-      { error: "Çok fazla güncelleme isteği gönderildi. Lütfen bekleyin." },
+      { error: "Too many update requests. Please wait a moment." },
       { status: 429 }
     );
   }
@@ -51,7 +51,7 @@ export async function PUT(
   try {
     const { id } = await params;
     if (!id || typeof id !== "string") {
-      return NextResponse.json({ error: "Geçersiz not ID'si" }, { status: 400 });
+      return NextResponse.json({ error: "Invalid note ID" }, { status: 400 });
     }
 
     const rawBody = await req.json();
@@ -60,7 +60,7 @@ export async function PUT(
     if (!parseResult.success) {
       return NextResponse.json(
         {
-          error: "Geçersiz güncelleme verisi",
+          error: "Invalid update data",
           details: parseResult.error.issues.map((e) => e.message),
         },
         { status: 400 }
@@ -70,13 +70,13 @@ export async function PUT(
     const updated = await updateNote(id, parseResult.data);
 
     if (!updated) {
-      return NextResponse.json({ error: "Not bulunamadı" }, { status: 404 });
+      return NextResponse.json({ error: "Note not found" }, { status: 404 });
     }
 
     return NextResponse.json({ note: updated });
   } catch (error) {
-    console.error("Not güncellenemedi:", error);
-    return NextResponse.json({ error: "Not güncellenirken bir hata oluştu" }, { status: 500 });
+    console.error("Failed to update the note:", error);
+    return NextResponse.json({ error: "Something went wrong while updating the note" }, { status: 500 });
   }
 }
 
@@ -87,7 +87,7 @@ export async function DELETE(
   const rateLimit = checkRateLimit(req, 60, 60 * 1000);
   if (!rateLimit.success) {
     return NextResponse.json(
-      { error: "Çok fazla istek gönderildi." },
+      { error: "Too many requests." },
       { status: 429 }
     );
   }
@@ -95,18 +95,18 @@ export async function DELETE(
   try {
     const { id } = await params;
     if (!id || typeof id !== "string") {
-      return NextResponse.json({ error: "Geçersiz not ID'si" }, { status: 400 });
+      return NextResponse.json({ error: "Invalid note ID" }, { status: 400 });
     }
 
     const success = await deleteNote(id);
 
     if (!success) {
-      return NextResponse.json({ error: "Not bulunamadı veya silinemedi" }, { status: 404 });
+      return NextResponse.json({ error: "The note was not found or could not be deleted" }, { status: 404 });
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Not silinemedi:", error);
-    return NextResponse.json({ error: "Not silinirken bir hata oluştu" }, { status: 500 });
+    console.error("Failed to delete the note:", error);
+    return NextResponse.json({ error: "Something went wrong while deleting the note" }, { status: 500 });
   }
 }

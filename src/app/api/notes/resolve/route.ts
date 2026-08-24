@@ -7,7 +7,7 @@ export async function POST(req: NextRequest) {
   const rateLimit = checkRateLimit(req, 60, 60 * 1000);
   if (!rateLimit.success) {
     return NextResponse.json(
-      { error: "Çok fazla istek gönderildi. Lütfen bir süre sonra tekrar deneyin." },
+      { error: "Too many requests. Please try again in a little while." },
       { status: 429 }
     );
   }
@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
     if (!parseResult.success) {
       return NextResponse.json(
         {
-          error: "Geçersiz veri",
+          error: "Invalid data",
           details: parseResult.error.issues.map((e) => e.message),
         },
         { status: 400 }
@@ -30,9 +30,9 @@ export async function POST(req: NextRequest) {
     const result = await findOrCreateNoteByTitle(title, sourceNoteTitle);
     return NextResponse.json(result);
   } catch (error) {
-    console.error("Not çözümlenemedi veya oluşturulamadı:", error);
+    console.error("Failed to resolve or create the note:", error);
     return NextResponse.json(
-      { error: "Not çözümlenirken veya oluşturulurken hata oluştu" },
+      { error: "Something went wrong while resolving or creating the note" },
       { status: 500 }
     );
   }

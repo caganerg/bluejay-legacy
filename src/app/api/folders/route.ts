@@ -4,12 +4,12 @@ import { createFolderSchema } from "@/lib/validations/note";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 export async function GET(req: NextRequest) {
-  // Kasanın tamamını (bütün notların tam içeriğiyle) serileştiren rota;
-  // limitsiz bırakıldığında ucuz bir hizmet dışı bırakma vektörü.
+  // A route that serialises the whole vault (with the full content of every
+  // note); left unlimited it is a cheap denial-of-service vector.
   const rateLimit = checkRateLimit(req, 240, 60 * 1000);
   if (!rateLimit.success) {
     return NextResponse.json(
-      { error: "Çok fazla istek gönderildi. Lütfen bekleyin." },
+      { error: "Too many requests. Please wait a moment." },
       { status: 429 }
     );
   }
@@ -18,8 +18,8 @@ export async function GET(req: NextRequest) {
     const folders = await getAllFolders();
     return NextResponse.json({ folders });
   } catch (error) {
-    console.error("Klasörler getirilemedi:", error);
-    return NextResponse.json({ error: "Klasörler yüklenirken bir hata oluştu" }, { status: 500 });
+    console.error("Failed to fetch folders:", error);
+    return NextResponse.json({ error: "Something went wrong while loading the folders" }, { status: 500 });
   }
 }
 
@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
   const rateLimit = checkRateLimit(req, 60, 60 * 1000);
   if (!rateLimit.success) {
     return NextResponse.json(
-      { error: "Çok fazla istek gönderildi. Lütfen bekleyin." },
+      { error: "Too many requests. Please wait a moment." },
       { status: 429 }
     );
   }
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     if (!parseResult.success) {
       return NextResponse.json(
         {
-          error: "Geçersiz klasör verisi",
+          error: "Invalid folder data",
           details: parseResult.error.issues.map((e) => e.message),
         },
         { status: 400 }
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
     const folder = await createFolder(name, parentId || null);
     return NextResponse.json({ folder }, { status: 201 });
   } catch (error) {
-    console.error("Klasör oluşturulamadı:", error);
-    return NextResponse.json({ error: "Klasör oluşturulurken bir hata oluştu" }, { status: 500 });
+    console.error("Failed to create the folder:", error);
+    return NextResponse.json({ error: "Something went wrong while creating the folder" }, { status: 500 });
   }
 }

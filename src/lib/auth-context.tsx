@@ -3,12 +3,13 @@
 import * as React from "react";
 
 /**
- * Parola korumasının açık olup olmadığını istemciye taşır.
+ * Carries to the client whether password protection is enabled.
  *
- * `BLUEJAY_PASSWORD` sunucu tarafında kalan bir sır; istemcinin bilmesi gereken
- * tek şey korumanın etkin olup olmadığı. Kök layout (sunucu bileşeni) bu boolean'ı
- * okuyup buraya veriyor, arayüz de kilitleme gibi yalnızca koruma açıkken anlamlı
- * olan kontrolleri buna göre gösteriyor.
+ * `BLUEJAY_PASSWORD` is a secret that stays on the server; all the client needs
+ * to know is whether protection is active. The root layout (a server component)
+ * reads that boolean and passes it in here, and the UI uses it to decide whether
+ * to show controls — such as locking — that only make sense while protection is
+ * on.
  */
 const AuthEnabledContext = React.createContext(false);
 

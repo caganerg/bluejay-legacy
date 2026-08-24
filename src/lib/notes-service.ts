@@ -4,26 +4,26 @@ import { slugify, collectFolderSubtreeIds } from "./utils";
 import { Note, Folder, Tag, SearchResult } from "@/types";
 import { GraphData, GraphNode, GraphLink } from "@/types/graph";
 
-// Varsayılan Kullanıcı ID (Demo / Tekil kullanıcı modu için)
+// Default user ID (for demo / single-user mode)
 export const DEFAULT_USER_ID = "default-user-id";
 
 // ----------------------------------------------------
-// DEPOLAMA MODU
+// STORAGE MODE
 // ----------------------------------------------------
-// Mod süreç başlarken bir kez, yalnızca `DATABASE_URL`'in varlığına bakarak
-// belirlenir ve çalışma sırasında değişmez.
+// The mode is decided once at process start, purely from whether `DATABASE_URL`
+// is present, and does not change at runtime.
 //
-// Daha önce her fonksiyon `try { prisma… } catch { /* fallback */ }` kalıbını
-// kullanıyordu. Bu kalıp bağlantı kopmasını, benzersizlik ihlalini ve kısıt
-// hatasını ayırt etmeden yutup isteği sessizce bellek içi depoya yönlendiriyordu:
-// kullanıcı "Kaydedildi" görüyor, not yalnızca belleğe yazıldığı için yeniden
-// başlatmada yok oluyordu. Artık veritabanı modundayken hatalar yutulmuyor —
-// çağırana yükseliyor ve rota 500 dönüyor. Yanlış depoya sessizce yazmaktansa
-// görünür bir hata vermek yeğdir.
+// Every function used to follow a `try { prisma… } catch { /* fallback */ }`
+// pattern. That pattern swallowed connection failures, unique violations and
+// constraint errors alike and silently redirected the request to the in-memory
+// store: the user saw "Saved" while the note, written only to memory,
+// disappeared on the next restart. Errors are no longer swallowed in database
+// mode — they propagate to the caller and the route returns 500. A visible error
+// beats silently writing to the wrong store.
 export const USE_DATABASE = Boolean(process.env.DATABASE_URL);
 
 // ----------------------------------------------------
-// BELLEK İÇİ DEPO (yalnızca `DATABASE_URL` tanımsızken)
+// IN-MEMORY STORE (only while `DATABASE_URL` is unset)
 // ----------------------------------------------------
 interface MemoryStore {
   users: { id: string; name: string; email: string }[];
@@ -38,7 +38,7 @@ const globalStore = globalThis as unknown as {
 
 if (!globalStore.__bluejayStore) {
   globalStore.__bluejayStore = {
-    users: [{ id: DEFAULT_USER_ID, name: "Kullanıcı", email: "user@bluejay.app" }],
+    users: [{ id: DEFAULT_USER_ID, name: "User", email: "user@bluejay.app" }],
     folders: [],
     notes: [],
     tags: [],
@@ -48,13 +48,13 @@ if (!globalStore.__bluejayStore) {
 const memoryStore = globalStore.__bluejayStore;
 
 // ----------------------------------------------------
-// NOT SERVİS FONKSİYONLARI
+// NOTE SERVICE FUNCTIONS
 // ----------------------------------------------------
 
-// Notlar `[userId, slug]` üzerinde benzersiz olmak zorunda (bkz. prisma/schema.prisma).
-// Aynı başlıkla (veya aynı slug'a dönüşen farklı başlıklarla) not oluşturmak/yeniden
-// adlandırmak veritabanında çakışmaya ve notun sessizce kaybolmasına yol açabildiğinden,
-// slug'ı önceden -2, -3... ekleyerek benzersizleştiriyoruz.
+// Notes must be unique on `[userId, slug]` (see prisma/schema.prisma). Creating
+// or renaming a note with the same title (or with different titles that slugify
+// the same) could collide in the database and make the note vanish silently, so
+// we make the slug unique up front by appending -2, -3, and so on.
 async function getExistingSlugs(userId: string, excludeNoteId?: string): Promise<Set<string>> {
   if (USE_DATABASE) {
     const notes = await prisma.note.findMany({
@@ -76,7 +76,7 @@ async function generateUniqueSlug(
   userId: string,
   excludeNoteId?: string
 ): Promise<string> {
-  const base = slugify(title) || "not";
+  const base = slugify(title) || "note";
   const existingSlugs = await getExistingSlugs(userId, excludeNoteId);
 
   if (!existingSlugs.has(base)) return base;
@@ -88,9 +88,9 @@ async function generateUniqueSlug(
   return `${base}-${counter}`;
 }
 
-// Prisma'nın benzersizlik ihlali hata kodu. `generateUniqueSlug` mevcut slug'ları
-// okuyup sonra yazdığı için araya giren eşzamanlı bir oluşturma aynı slug'ı
-// üretebiliyor; bu durumda tekrar deniyoruz.
+// Prisma's unique-violation error code. Since `generateUniqueSlug` reads the
+// existing slugs and then writes, a concurrent create slipping in between can
+// produce the same slug; in that case we retry.
 function isUniqueViolation(error: unknown): boolean {
   return (
     typeof error === "object" &&
@@ -99,9 +99,9 @@ function isUniqueViolation(error: unknown): boolean {
   );
 }
 
-// Prisma'nın serileştirme çakışması / kilitlenme kodu. `SERIALIZABLE` seviyesinde
-// çalışan bir transaction eşzamanlı bir yazmayla çakışırsa bununla düşer ve
-// yeniden denenmesi beklenir.
+// Prisma's serialization-conflict / deadlock code. A transaction running at
+// `SERIALIZABLE` fails with this when it conflicts with a concurrent write, and
+// is expected to be retried.
 function isSerializationFailure(error: unknown): boolean {
   return (
     typeof error === "object" &&
@@ -131,9 +131,9 @@ export async function getAllNotes(userId = DEFAULT_USER_ID): Promise<Note[]> {
     });
 }
 
-// Bir notu ID, slug ya da başlıkla eşleştiren tek ortak kural. `getNoteById`,
-// `updateNote` ve `deleteNote` aynı kuralı kullanır; aksi halde `GET` ile açılan
-// bir tanımlayıcı `PUT`'ta 404 veriyordu.
+// The single shared rule for matching a note by ID, slug or title.
+// `getNoteById`, `updateNote` and `deleteNote` all use it; otherwise an
+// identifier that opened fine with `GET` returned 404 on `PUT`.
 function noteIdentityCandidates(id: string): { raw: string; decoded: string; slug: string } {
   let decoded = id;
   try {
@@ -158,9 +158,9 @@ function memoryNoteMatches(note: Note, id: string): boolean {
 }
 
 /**
- * Verilen tanımlayıcıyı (ID, slug ya da başlık) gerçek not ID'sine çevirir.
- * Yazma işlemleri önce bunu çağırır, böylece okuma ve yazma rotaları aynı
- * tanımlayıcı kümesini kabul eder.
+ * Turns the given identifier (ID, slug or title) into the real note ID. Writes
+ * call this first, so that read and write routes accept the same set of
+ * identifiers.
  */
 export async function resolveNoteId(id: string, userId = DEFAULT_USER_ID): Promise<string | null> {
   const { raw, decoded, slug } = noteIdentityCandidates(id);
@@ -290,7 +290,7 @@ export async function findOrCreateNoteByTitle(
 
   // Not found -> create new note
   const initialContent = sourceNoteTitle
-    ? `# ${cleanTitle}\n\nBu not [[${sourceNoteTitle}]] üzerinden oluşturuldu.\n\n`
+    ? `# ${cleanTitle}\n\nThis note was created from [[${sourceNoteTitle}]].\n\n`
     : `# ${cleanTitle}\n\n`;
 
   const newNote = await createNote(
@@ -309,12 +309,12 @@ export async function createNote(
   data: { title: string; content?: string; folderId?: string | null },
   userId = DEFAULT_USER_ID
 ): Promise<Note> {
-  const title = data.title.trim() || "Başlıksız Not";
+  const title = data.title.trim() || "Untitled Note";
   const content = data.content || "";
 
   if (USE_DATABASE) {
-    // Slug üretimi oku-sonra-yaz olduğu için eşzamanlı bir oluşturma araya
-    // girebiliyor; benzersizlik ihlalinde yeni bir slug hesaplayıp tekrar deniyoruz.
+    // Slug generation is read-then-write, so a concurrent create can slip in
+    // between; on a unique violation we compute a new slug and retry.
     for (let attempt = 0; attempt < 5; attempt++) {
       const slug = await generateUniqueSlug(title, userId);
       try {
@@ -366,7 +366,7 @@ export async function updateNote(
   },
   userId = DEFAULT_USER_ID
 ): Promise<Note | null> {
-  // Okuma rotalarıyla aynı tanımlayıcıları kabul et (ID / slug / başlık).
+  // Accept the same identifiers as the read routes (ID / slug / title).
   const noteId = await resolveNoteId(id, userId);
   if (!noteId) return null;
 
@@ -377,8 +377,8 @@ export async function updateNote(
     if (data.isPinned !== undefined) updateData.isPinned = data.isPinned;
     if (data.isArchived !== undefined) updateData.isArchived = data.isArchived;
 
-    // `userId` kapsamı zorunlu: bu olmadan not ID'sini bilen herkes başkasının
-    // notunu güncelleyebilir (IDOR).
+    // Scoping by `userId` is mandatory: without it anyone who knows a note ID
+    // could update someone else's note (IDOR).
     for (let attempt = 0; attempt < 5; attempt++) {
       if (data.title !== undefined) {
         updateData.title = data.title.trim();
@@ -444,7 +444,7 @@ export async function deleteNote(id: string, userId = DEFAULT_USER_ID): Promise<
 }
 
 // ----------------------------------------------------
-// GRAPH DATA HESAPLAMA (Force-Directed Graph için)
+// GRAPH DATA COMPUTATION (for the force-directed graph)
 // ----------------------------------------------------
 
 export async function getGraphData(userId = DEFAULT_USER_ID): Promise<GraphData> {
@@ -456,12 +456,11 @@ export async function getGraphData(userId = DEFAULT_USER_ID): Promise<GraphData>
   const links: GraphLink[] = [];
   const slugMap = new Map<string, Note>();
   const titleMap = new Map<string, Note>();
-  // Düğüm ağırlığını artırırken `nodes.find()` kullanmak toplamı
-  // notlar × bağlantılar × düğüm karmaşıklığına çıkarıyordu; ID ile
-  // doğrudan erişim için indeks tutuyoruz.
+  // Using `nodes.find()` while bumping node weights pushed the total complexity
+  // to notes × links × nodes; we keep an index for direct access by ID.
   const nodeById = new Map<string, GraphNode>();
 
-  // Notları düğüm olarak ekle
+  // Add the notes as nodes
   for (const note of notes) {
     slugMap.set(note.slug, note);
     titleMap.set(note.title.toLowerCase(), note);
@@ -471,18 +470,18 @@ export async function getGraphData(userId = DEFAULT_USER_ID): Promise<GraphData>
       title: note.title,
       slug: note.slug,
       folderName: note.folderId ? folderMap.get(note.folderId) : undefined,
-      group: note.folderId ? folderMap.get(note.folderId) || "Genel" : "Genel",
-      val: 1, // degree arttıkça güncellenecek
+      group: note.folderId ? folderMap.get(note.folderId) || "General" : "General",
+      val: 1, // updated as the degree grows
       isPhantom: false,
     };
     nodes.push(node);
     nodeById.set(node.id, node);
   }
 
-  // Henüz var olmayan (Phantom) notları takip etmek için
+  // Tracks notes that do not exist yet (phantom notes)
   const phantomTitles = new Map<string, string>(); // title -> phantomNodeId
 
-  // Bağlantıları çıkar
+  // Extract the links
   for (const note of notes) {
     const extractedLinks = extractWikiLinks(note.content);
 
@@ -490,20 +489,20 @@ export async function getGraphData(userId = DEFAULT_USER_ID): Promise<GraphData>
       const targetNote = slugMap.get(link.slug) || titleMap.get(link.targetTitle.toLowerCase());
 
       if (targetNote) {
-        // Mevcut nota bağlantı
+        // A link to an existing note
         links.push({
           source: note.id,
           target: targetNote.id,
           isPhantom: false,
         });
 
-        // Düğüm ağırlıklarını (val) artır
+        // Bump the node weights (val)
         const sourceNode = nodeById.get(note.id);
         const targetNodeObj = nodeById.get(targetNote.id);
         if (sourceNode) sourceNode.val = (sourceNode.val || 1) + 1;
         if (targetNodeObj) targetNodeObj.val = (targetNodeObj.val || 1) + 1.5;
       } else {
-        // Phantom Link (Henüz oluşturulmamış nota referans)
+        // Phantom link (a reference to a note that has not been created yet)
         const phantomKey = link.targetTitle.toLowerCase();
         let phantomId = phantomTitles.get(phantomKey);
 
@@ -515,7 +514,7 @@ export async function getGraphData(userId = DEFAULT_USER_ID): Promise<GraphData>
             id: phantomId,
             title: link.targetTitle,
             slug: slugify(link.targetTitle),
-            group: "Oluşturulmamış",
+            group: "Uncreated",
             val: 0.8,
             isPhantom: true,
           };
@@ -536,7 +535,7 @@ export async function getGraphData(userId = DEFAULT_USER_ID): Promise<GraphData>
 }
 
 // ----------------------------------------------------
-// KLASÖR & ETİKET & ARAMA FONKSİYONLARI
+// FOLDER, TAG & SEARCH FUNCTIONS
 // ----------------------------------------------------
 
 export async function getAllFolders(userId = DEFAULT_USER_ID): Promise<Folder[]> {
@@ -574,16 +573,16 @@ export async function createFolder(
   return folder;
 }
 
-// Bir klasörün (id) verilen hedef (targetParentId) altına taşınmasının
-// döngü oluşturup oluşturmayacağını kontrol eder (kendi alt klasörüne taşınamaz).
+// Checks whether moving a folder (id) under the given target (targetParentId)
+// would create a cycle (a folder cannot be moved into its own subtree).
 //
-// Yürüyüş `visited` ile sınırlanmak ZORUNDA: veride zaten bir döngü varsa
-// (A.parent=B, B.parent=A) sınırsız `while` sonsuza kadar dönüyor ve isteği
-// işleyen süreci kilitliyordu. Böyle bir veri hâli mümkün, çünkü bu kontrol
-// oku-sonra-yaz; aşağıdaki çağrı noktası artık ikisini tek transaction'a alıyor
-// ama diskte önceden oluşmuş bozuk bir hiyerarşiye de dayanıklı olmalıyız.
-// Mevcut bir döngüye girmek yeni bir döngü kurmakla aynı sonucu doğurduğu için
-// bu durumda `true` (taşımayı reddet) dönüyoruz.
+// The walk MUST be bounded with `visited`: if the data already contains a cycle
+// (A.parent=B, B.parent=A) an unbounded `while` spins forever and locks up the
+// process handling the request. Such a data state is possible, because this
+// check is read-then-write; the call site below now wraps both in a single
+// transaction, but we still have to be resilient to a broken hierarchy that was
+// already persisted. Since entering an existing cycle has the same effect as
+// creating a new one, we return `true` (reject the move) in that case.
 function wouldCreateCycle(
   allFolders: { id: string; parentId?: string | null }[],
   id: string,
@@ -598,7 +597,7 @@ function wouldCreateCycle(
   let current = byId.get(targetParentId);
   while (current) {
     if (current.id === id) return true;
-    if (visited.has(current.id)) return true; // veride hâlihazırda döngü var
+    if (visited.has(current.id)) return true; // the data already contains a cycle
     visited.add(current.id);
     if (!current.parentId) break;
     current = byId.get(current.parentId);
@@ -616,17 +615,17 @@ export async function updateFolder(
     if (data.name !== undefined) updateData.name = data.name.trim();
     if (data.parentId !== undefined) updateData.parentId = data.parentId;
 
-    // Döngü kontrolü ile yazma TEK ve SERİLEŞTİRİLEBİLİR bir transaction'da
-    // olmak zorunda. Eskiden ikisi arasında `await` vardı: eşzamanlı iki taşıma
-    // isteği (A'yı B'ye, B'yi A'ya) ikisi de döngüsüz bir anlık görüntü okuyup
-    // ikisi de yazabiliyor, sonuçta veritabanında gerçek bir döngü kalıyordu.
-    // Bu tam olarak "write skew" anomalisi; Postgres'in varsayılan READ
-    // COMMITTED seviyesi bunu engellemez, SERIALIZABLE engeller.
+    // The cycle check and the write must happen in a SINGLE, SERIALIZABLE
+    // transaction. There used to be an `await` between the two: two concurrent
+    // move requests (A under B, B under A) could each read a cycle-free snapshot
+    // and each write, leaving a real cycle in the database. That is exactly the
+    // "write skew" anomaly; Postgres's default READ COMMITTED level does not
+    // prevent it, SERIALIZABLE does.
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         return await prisma.$transaction(
           async (tx) => {
-            // `userId` kapsamı zorunlu (bkz. updateNote).
+            // Scoping by `userId` is mandatory (see updateNote).
             const existing = await tx.folder.findFirst({
               where: { id, userId },
               select: { id: true },
@@ -652,7 +651,7 @@ export async function updateFolder(
           { isolationLevel: "Serializable" }
         );
       } catch (error) {
-        // P2034: serileştirme çakışması / kilitlenme — tekrar denenmeli.
+        // P2034: serialization conflict / deadlock — must be retried.
         if (!isSerializationFailure(error) || attempt === 2) throw error;
       }
     }
@@ -681,8 +680,8 @@ export async function deleteFolder(id: string, userId = DEFAULT_USER_ID): Promis
     });
     if (!existing) return false;
 
-    // Alt klasörler şemadaki `onDelete: Cascade` ile birlikte silinir,
-    // notlar `onDelete: SetNull` ile klasörsüz kalır.
+    // Subfolders are deleted along with it via `onDelete: Cascade` in the
+    // schema, and notes are left without a folder via `onDelete: SetNull`.
     await prisma.folder.delete({ where: { id, userId } });
     return true;
   }
@@ -726,7 +725,7 @@ export async function searchNotes(
     .filter((n) => n.title.toLowerCase().includes(q) || n.content.toLowerCase().includes(q))
     .slice(0, 15)
     .map((n) => {
-      // Arama sonucunda eşleşen yerin etrafından önizleme çıkar
+      // Build a preview from around the match in the search result
       const lowerContent = n.content.toLowerCase();
       const matchIndex = lowerContent.indexOf(q);
       let preview = "";
@@ -754,24 +753,25 @@ export async function searchNotes(
 }
 
 // ----------------------------------------------------
-// LİNKLERİ VE ETİKETLERİ SENKRONİZE ET (Postgres için)
+// SYNCHRONISE LINKS AND TAGS (for Postgres)
 // ----------------------------------------------------
 /**
- * Bir notun wikilink ve etiketlerini yeniden yazar.
+ * Rewrites a note's wikilinks and tags.
  *
- * Tamamı tek bir işlemde çalışır: önceki sürüm bağlantıları silip tek tek
- * yeniden oluşturuyordu ve araya giren bir hata notu bağlantısız bırakıyordu.
- * Ayrıca `NoteLink` üzerindeki `@@unique([sourceNoteId, targetNoteId])` kısıtı
- * yüzünden aynı nota çözülen iki farklı wikilink (`[[Not A]]` ve `[[Not-A]]`)
- * benzersizlik ihlali doğuruyor, hata yutulduğu için etiket senkronizasyonuna
- * hiç sıra gelmiyordu — notun bütün etiketleri sessizce kayboluyordu. Hedefler
- * artık yazılmadan önce ID'ye göre tekilleştiriliyor.
+ * The whole thing runs in a single transaction: the previous version deleted the
+ * links and recreated them one by one, and an error in between left the note
+ * without any links. On top of that, because of the
+ * `@@unique([sourceNoteId, targetNoteId])` constraint on `NoteLink`, two
+ * different wikilinks resolving to the same note (`[[Note A]]` and `[[Note-A]]`)
+ * raised a unique violation; the error was swallowed, so tag synchronisation
+ * never ran — and all of the note's tags silently disappeared. Targets are now
+ * deduplicated by ID before being written.
  */
 async function syncLinksAndTags(noteId: string, content: string, userId: string) {
   const extractedLinks = extractWikiLinks(content);
   const extractedTags = extractTags(content);
 
-  // Hedef notları tek sorguda topla (bağlantı başına ayrı sorgu yerine).
+  // Collect the target notes in a single query (rather than one per link).
   const targetNotes = extractedLinks.length
     ? await prisma.note.findMany({
         where: {
@@ -788,10 +788,10 @@ async function syncLinksAndTags(noteId: string, content: string, userId: string)
   const bySlug = new Map(targetNotes.map((n) => [n.slug, n]));
   const byTitle = new Map(targetNotes.map((n) => [n.title.toLowerCase(), n]));
 
-  // `[sourceNoteId, targetNoteId]` benzersiz olduğu için çözülmüş hedefleri
-  // ID'ye göre tekilleştir. Çözülemeyen (phantom) bağlantılarda `targetNoteId`
-  // null kalır; Postgres'te null'lar benzersizlik açısından farklı sayıldığından
-  // bunlar başlığa göre tekilleştirilir.
+  // Since `[sourceNoteId, targetNoteId]` is unique, deduplicate resolved targets
+  // by ID. Unresolved (phantom) links keep `targetNoteId` null; because Postgres
+  // treats nulls as distinct for uniqueness, those are deduplicated by title
+  // instead.
   const resolved = new Map<string, string>(); // targetNoteId -> targetTitle
   const phantom = new Map<string, string>(); // lowercased title -> targetTitle
 
@@ -830,8 +830,8 @@ async function syncLinksAndTags(noteId: string, content: string, userId: string)
     await tx.noteTag.deleteMany({ where: { noteId } });
 
     if (tagNames.length) {
-      // Etiketler kullanıcı genelinde paylaşıldığı için önce var olanları çek,
-      // eksikleri toplu oluştur.
+      // Tags are shared across the user, so fetch the existing ones first and
+      // bulk-create the missing ones.
       const existingTags = await tx.tag.findMany({
         where: { userId, name: { in: tagNames } },
         select: { id: true, name: true },

@@ -3,26 +3,28 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 /**
- * Oturum "epoch"u — sunucu tarafında oturum iptalini mümkün kılan tek durum.
+ * The session "epoch" — the only piece of state that makes server-side session
+ * revocation possible.
  *
- * Neden gerekli: oturum jetonu kendi kendini doğrulayan imzalı bir değerdi ve
- * sunucu hiçbir şey saklamadığı için ÇIKIŞ YAPMAK JETONU GEÇERSİZ KILMIYORDU.
- * `/api/auth/logout` yalnızca isteği yapanın çerezini düşürüyordu; jetonun bir
- * kopyasını ele geçiren biri `exp`'e kadar (varsayılan 7 gün) erişmeye devam
- * edebiliyordu. "Kasayı Kilitle" düğmesi gerçekte hiçbir şeyi kilitlemiyordu.
+ * Why it is needed: the session token was a self-verifying signed value and,
+ * because the server stored nothing, LOGGING OUT DID NOT INVALIDATE THE TOKEN.
+ * `/api/auth/logout` only dropped the caller's own cookie; anyone who had
+ * captured a copy of the token kept access until `exp` (7 days by default). The
+ * "Lock Vault" button locked nothing at all.
  *
- * Epoch imza anahtarına karışıyor (bkz. `signingKey`, src/lib/auth.ts): epoch
- * döndüğü anda daha önce verilmiş bütün jetonların imzası geçersiz olur.
+ * The epoch is mixed into the signing key (see `signingKey`, src/lib/auth.ts):
+ * the moment the epoch rotates, the signature of every previously issued token
+ * becomes invalid.
  *
- * Neden dosyada: bu değeri hem `proxy.ts` hem de API rotaları okuyor. Next
- * dokümanı proxy'nin uygulama koduyla modül/global paylaşmasına güvenilmemesi
- * gerektiğini söylüyor (node_modules/next/dist/docs/01-app/03-api-reference/
- * 03-file-conventions/proxy.md), dolayısıyla süreç içi bir değişken yetmez.
- * Dosya ayrıca yeniden başlatmaya da dayanır — bellekte tutulsaydı sunucu her
- * yeniden başladığında iptal edilmiş jetonlar tekrar geçerli hâle gelirdi.
+ * Why it lives in a file: both `proxy.ts` and the API routes read this value.
+ * The Next docs say the proxy must not be relied upon to share modules/globals
+ * with application code (node_modules/next/dist/docs/01-app/03-api-reference/
+ * 03-file-conventions/proxy.md), so an in-process variable would not do. A file
+ * also survives restarts — kept in memory, revoked tokens would become valid
+ * again every time the server restarted.
  *
- * Not: `rate-limit.ts` ile aynı sınırlama geçerli — çok örnekli bir dağıtımda
- * bu dosyanın örnekler arasında paylaşılan bir birimde durması gerekir.
+ * Note: the same limitation as `rate-limit.ts` applies — in a multi-instance
+ * deployment this file has to live on a volume shared between the instances.
  */
 
 const stateDir = process.env.BLUEJAY_STATE_DIR ?? path.join(process.cwd(), ".bluejay");
@@ -38,18 +40,19 @@ function persist(value: string): void {
 }
 
 /**
- * Geçerli epoch. Dosya yoksa (ilk çalıştırma) üretilip yazılır.
+ * The current epoch. If the file does not exist (first run) one is generated
+ * and written.
  *
- * Her istekte diskten okunuyor; ölçtüğümde 4 µs sürüyor, yani önbelleğe almaya
- * değmez. Önbelleksiz olması aynı zamanda doğruluk açısından iyi: çıkışın
- * ardından bayat bir epoch'la doğrulama yapılan bir pencere hiç oluşmuyor.
+ * It is read from disk on every request; measured at 4 µs, so caching is not
+ * worth it. Being uncached is also good for correctness: there is never a
+ * window where verification runs against a stale epoch after a logout.
  */
 export function currentSessionEpoch(): string {
   try {
     const value = readFileSync(epochFile, "utf8").trim();
     if (value) return value;
   } catch {
-    // Dosya yok ya da okunamadı; aşağıda yeniden üretiliyor.
+    // The file is missing or unreadable; it is regenerated below.
   }
 
   const value = newEpoch();
@@ -58,8 +61,8 @@ export function currentSessionEpoch(): string {
 }
 
 /**
- * Yeni bir epoch üretir; verilmiş bütün oturum jetonlarını anında geçersiz kılar.
- * Çıkışta çağrılır.
+ * Generates a new epoch, invalidating every issued session token instantly.
+ * Called on logout.
  */
 export function rotateSessionEpoch(): void {
   persist(newEpoch());

@@ -194,15 +194,17 @@ export function GraphView({ data, activeNoteId, onNodeClick }: GraphViewProps) {
     ctx.restore();
   }, [panOffset, zoomLevel, hoveredNode, activeNoteId, searchQuery]);
 
-  // renderCanvas, hover/zoom/pan/arama gibi sık değişen state'lere bağlı olduğundan
-  // kimliği her hover değişiminde yenileniyor. Onu doğrudan effect bağımlılığı yapmak yerine
-  // bir ref üzerinden en güncel haliyle çağırıyoruz; aksi halde aşağıdaki similasyon
-  // başlatma effect'i her hover değişiminde yeniden tetiklenip simülasyonu sıfırdan
-  // başlatıyor (düğümler mevcut konumlarını kaybedip "sapıtıyor").
+  // `renderCanvas` depends on frequently changing state (hover/zoom/pan/search),
+  // so its identity is recreated on every hover change. Rather than making it a
+  // direct effect dependency, we call the latest version through a ref;
+  // otherwise the simulation-startup effect below would re-fire on every hover
+  // change and restart the simulation from scratch (the nodes would lose their
+  // current positions and fly off).
   const renderCanvasRef = React.useRef(renderCanvas);
   React.useEffect(() => {
     renderCanvasRef.current = renderCanvas;
-    // Hover/zoom/pan/aktif not/arama değişince simülasyonu sıfırlamadan sadece yeniden çiz.
+    // On hover/zoom/pan/active-note/search changes, just redraw without
+    // resetting the simulation.
     renderCanvas();
   }, [renderCanvas]);
 
@@ -345,8 +347,8 @@ export function GraphView({ data, activeNoteId, onNodeClick }: GraphViewProps) {
         return;
       }
 
-      // Hayalet (henüz oluşturulmamış) düğüm: sahte "phantom-..." id'sine gitmek yerine
-      // gerçek notu ismiyle bul/oluştur ve ona yönlendir.
+      // A phantom node (not created yet): instead of navigating to the fake
+      // "phantom-..." id, find or create the real note by name and go there.
       try {
         const res = await fetch("/api/notes/resolve", {
           method: "POST",
@@ -365,7 +367,7 @@ export function GraphView({ data, activeNoteId, onNodeClick }: GraphViewProps) {
           }
         }
       } catch (err) {
-        console.error("Hayalet not çözümlenemedi:", err);
+        console.error("Failed to resolve the phantom note:", err);
       }
     },
     [onNodeClick, router]
@@ -392,14 +394,14 @@ export function GraphView({ data, activeNoteId, onNodeClick }: GraphViewProps) {
 
   return (
     <div className="flex flex-col h-full w-full bg-[#070a13] relative overflow-hidden select-none">
-      {/* Üst Kontrol ve Filtre Çubuğu */}
+      {/* Top control and filter bar */}
       <div className="absolute top-4 left-4 right-4 z-20 flex flex-wrap items-center justify-between gap-3 pointer-events-none">
         <div className="flex items-center gap-2 pointer-events-auto bg-slate-900/90 p-1.5 rounded-xl border border-slate-800/80 shadow-2xl backdrop-blur-md">
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
             <Input
               type="text"
-              placeholder="Grafikte ara..."
+              placeholder="Search the graph..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="h-8 w-48 sm:w-64 pl-8 bg-slate-950/60 text-xs border-slate-800 text-slate-200 placeholder:text-slate-500 rounded-lg"
@@ -412,18 +414,18 @@ export function GraphView({ data, activeNoteId, onNodeClick }: GraphViewProps) {
               onClick={() => setSearchQuery("")}
               className="h-8 px-2 text-xs text-slate-400 hover:text-white"
             >
-              Temizle
+              Clear
             </Button>
           )}
         </div>
 
-        {/* Yakınlaştırma & Sıfırlama Butonları */}
+        {/* Zoom & reset buttons */}
         <div className="flex items-center gap-1.5 pointer-events-auto bg-slate-900/90 p-1.5 rounded-xl border border-slate-800/80 shadow-2xl backdrop-blur-md">
           <Button
             variant="ghost"
             size="icon"
             onClick={() => setZoomLevel((z) => Math.min(3, z * 1.2))}
-            title="Yakınlaştır"
+            title="Zoom in"
             className="h-8 w-8 text-slate-300 hover:text-white hover:bg-slate-800"
           >
             <ZoomIn className="h-4 w-4" />
@@ -432,7 +434,7 @@ export function GraphView({ data, activeNoteId, onNodeClick }: GraphViewProps) {
             variant="ghost"
             size="icon"
             onClick={() => setZoomLevel((z) => Math.max(0.3, z / 1.2))}
-            title="Uzaklaştır"
+            title="Zoom out"
             className="h-8 w-8 text-slate-300 hover:text-white hover:bg-slate-800"
           >
             <ZoomOut className="h-4 w-4" />
@@ -442,7 +444,7 @@ export function GraphView({ data, activeNoteId, onNodeClick }: GraphViewProps) {
             variant="ghost"
             size="icon"
             onClick={handleResetView}
-            title="Görünümü Sıfırla"
+            title="Reset the view"
             className="h-8 w-8 text-slate-300 hover:text-white hover:bg-slate-800"
           >
             <RotateCcw className="h-4 w-4" />
@@ -450,7 +452,7 @@ export function GraphView({ data, activeNoteId, onNodeClick }: GraphViewProps) {
         </div>
       </div>
 
-      {/* Canvas Alanı */}
+      {/* Canvas area */}
       <div
         ref={containerRef}
         className="flex-1 w-full h-full cursor-grab active:cursor-grabbing relative"
@@ -463,34 +465,34 @@ export function GraphView({ data, activeNoteId, onNodeClick }: GraphViewProps) {
         <canvas ref={canvasRef} className="w-full h-full block" />
       </div>
 
-      {/* Alt Bilgi / Lejant Paneli */}
+      {/* Footer / legend panel */}
       <div className="absolute bottom-4 left-4 z-20 pointer-events-auto">
         <div className="bg-slate-900/90 border border-slate-800/80 p-3 rounded-xl shadow-2xl backdrop-blur-md text-[11px] text-slate-400 space-y-2 max-w-xs">
           <div className="flex items-center justify-between font-semibold text-slate-200 border-b border-slate-800 pb-1">
             <span className="flex items-center gap-1.5">
-              <Sparkles className="h-3.5 w-3.5 text-indigo-400" /> Bilgi Grafiği (D3)
+              <Sparkles className="h-3.5 w-3.5 text-indigo-400" /> Knowledge Graph (D3)
             </span>
             <span className="text-[10px] text-slate-500 font-mono">
-              {data.nodes.length} Not • {data.links.length} Bağlantı
+              {data.nodes.length} notes • {data.links.length} links
             </span>
           </div>
 
           <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 pt-0.5">
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 ring-2 ring-indigo-500/20" />
-              <span>Normal Not</span>
+              <span>Regular note</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-amber-500 ring-2 ring-amber-500/20" />
-              <span>Hayalet Not</span>
+              <span>Phantom note</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-sky-400 ring-2 ring-sky-400/20" />
-              <span>Aktif Not</span>
+              <span>Active note</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-pink-500 ring-2 ring-pink-500/20" />
-              <span>Arama Eşleşmesi</span>
+              <span>Search match</span>
             </div>
           </div>
         </div>

@@ -6,9 +6,9 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-// Düz klasör listesini (parentId ile) ağaç sırasına göre (üst -> alt) ve
-// derinlik bilgisiyle birlikte döndürür. <select> gibi listelerde klasör
-// hiyerarşisini girintiyle göstermek için kullanılır.
+// Returns a flat folder list (linked by parentId) in tree order (parent ->
+// child) along with each folder's depth. Used to render the folder hierarchy
+// with indentation in lists such as <select>.
 export function flattenFoldersAsTree(folders: Folder[]): { folder: Folder; depth: number }[] {
   const childrenByParent = new Map<string | null, Folder[]>();
   for (const folder of folders) {
@@ -28,9 +28,9 @@ export function flattenFoldersAsTree(folders: Folder[]): { folder: Folder; depth
   return result;
 }
 
-// Bir klasörün kendisi ve bütün alt klasörlerinin ID'leri. Şemadaki
-// `onDelete: Cascade` yüzünden bir klasör silindiğinde bu kümenin tamamı
-// gerçekten siliniyor; hem silme işlemi hem de onay metni bunu kullanır.
+// The IDs of a folder itself plus all of its descendants. Because of
+// `onDelete: Cascade` in the schema, deleting a folder really does delete this
+// whole set; both the delete operation and the confirmation text use it.
 export function collectFolderSubtreeIds(
   folders: { id: string; parentId?: string | null }[],
   rootId: string
@@ -76,7 +76,7 @@ export function slugify(text: string): string {
 
 export function formatDate(date: string | Date): string {
   const d = new Date(date);
-  return d.toLocaleDateString("tr-TR", {
+  return d.toLocaleDateString("en-US", {
     day: "numeric",
     month: "short",
     year: "numeric",

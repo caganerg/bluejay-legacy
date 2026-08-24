@@ -10,31 +10,33 @@ const scryptAsync = promisify(scrypt) as (
 ) => Promise<Buffer>;
 
 /**
- * Tek kullanıcılı şifre koruması.
+ * Single-user password protection.
  *
- * Uygulama tek bir kasayı (`DEFAULT_USER_ID`) sunduğu için burada kullanıcı
- * yönetimi yok: doğru parolayı bilen istemci imzalı bir oturum çerezi alır.
+ * The app serves a single vault (`DEFAULT_USER_ID`), so there is no user
+ * management here: a client that knows the correct password gets a signed
+ * session cookie.
  *
- * Ortam değişkenleri:
- *   BLUEJAY_PASSWORD  Kasayı açan parola. Tanımlı değilse koruma kapalıdır
- *                     (yalnızca geliştirmede; üretimde uygulama hizmet vermez).
- *   AUTH_SECRET       Oturum çerezini imzalayan gizli anahtar. Tanımlı değilse
- *                     paroladan türetilir; bu durumda parola değişince mevcut
- *                     bütün oturumlar geçersiz olur.
- *   SESSION_MAX_AGE   Oturum ömrü (saniye). Varsayılan 7 gün.
+ * Environment variables:
+ *   BLUEJAY_PASSWORD  The password that unlocks the vault. If unset, protection
+ *                     is off (development only; in production the app refuses to
+ *                     serve).
+ *   AUTH_SECRET       Secret key that signs the session cookie. If unset it is
+ *                     derived from the password, in which case changing the
+ *                     password invalidates all existing sessions.
+ *   SESSION_MAX_AGE   Session lifetime in seconds. Defaults to 7 days.
  */
 
 export const SESSION_COOKIE = "bluejay_session";
 
 const password = process.env.BLUEJAY_PASSWORD ?? "";
 
-/** Parola tanımlıysa koruma etkindir. */
+/** Protection is enabled whenever a password is set. */
 export const AUTH_ENABLED = password.length > 0;
 
 /**
- * Üretimde parola zorunlu. Koruma olmadan dağıtılan bir kasa, ona erişebilen
- * herkese açık demektir; bu yüzden `NODE_ENV=production` iken parola yoksa
- * uygulama istek karşılamaz.
+ * A password is mandatory in production. A vault deployed without protection is
+ * open to everyone who can reach it, so when `NODE_ENV=production` and no
+ * password is set the app serves no requests.
  */
 export const AUTH_MISCONFIGURED = process.env.NODE_ENV === "production" && !AUTH_ENABLED;
 
@@ -44,12 +46,12 @@ function signingKey(): Buffer {
   const explicit = process.env.AUTH_SECRET;
   const base = explicit
     ? Buffer.from(explicit, "utf8")
-    : // Parolanın kendisini anahtar olarak kullanmak yerine türevini kullan.
+    : // Use a derivative of the password rather than the password itself as the key.
       createHash("sha256").update(`bluejay-session:${password}`).digest();
 
-  // Oturum epoch'u anahtara karışıyor; böylece epoch döndüğünde (çıkış) daha
-  // önce verilmiş bütün jetonların imzası tek seferde geçersiz olur. Bu olmadan
-  // jetonlar sunucu tarafında hiçbir şekilde iptal edilemiyordu.
+  // The session epoch is mixed into the key, so that when the epoch rotates (on
+  // logout) the signature of every previously issued token becomes invalid at
+  // once. Without this, tokens could not be revoked server-side at all.
   return createHmac("sha256", base).update(currentSessionEpoch()).digest();
 }
 
@@ -57,36 +59,37 @@ function sign(payload: string): string {
   return createHmac("sha256", signingKey()).update(payload).digest("base64url");
 }
 
-/** İki dizgeyi uzunluk sızdırmadan ve sabit zamanda karşılaştırır. */
+/** Compares two strings in constant time without leaking their length. */
 function safeEqual(a: string, b: string): boolean {
-  // Önce özetlerini al: `timingSafeEqual` eşit uzunluk ister, ham dizgelerde
-  // uzunluk farkı erken dönüşle sızardı.
+  // Hash them first: `timingSafeEqual` requires equal lengths, and on raw
+  // strings a length difference would leak through an early return.
   const ha = createHash("sha256").update(a).digest();
   const hb = createHash("sha256").update(b).digest();
   return timingSafeEqual(ha, hb);
 }
 
 /**
- * Parola doğrulaması bilerek PAHALI.
+ * Password verification is deliberately EXPENSIVE.
  *
- * Eskiden tek bir SHA-256 karşılaştırmasıydı; deneme maliyeti sıfıra yakın
- * olduğu için kaba kuvvete karşı tek savunma giriş rotasındaki dakikalık
- * sayaçtı. O sayaç istemciyi ayırt edemediğinden (bkz. rate-limit.ts) küresel
- * bir kovaya dönüşüyordu: dakikada 10 yanlış denemeyle isteyen herkes kasanın
- * sahibini süresiz olarak dışarıda bırakabiliyordu.
+ * It used to be a single SHA-256 comparison; because an attempt cost close to
+ * nothing, the only defence against brute force was the per-minute counter on
+ * the login route. That counter cannot tell clients apart (see rate-limit.ts),
+ * so it degenerated into a global bucket: with 10 wrong attempts a minute,
+ * anyone could lock the vault's owner out indefinitely.
  *
- * Çözüm sayacı sertleştirmek değil, denemenin kendisini pahalılaştırmak: scrypt
- * ile deneme başına ~139 ms iş. Böylece kilitlemeye gerek kalmıyor ve sahibin
- * doğru parolası hiçbir zaman reddedilmiyor.
+ * The fix is not to harden the counter but to make the attempt itself costly:
+ * scrypt puts ~139 ms of work into every attempt. That removes the need for
+ * lockouts, and the owner's correct password is never rejected.
  *
- * `scrypt`in eşzamanlı (async) sürümü kullanılıyor: `scryptSync` olay döngüsünü
- * bloke eder ve giriş rotasını sel altında bırakan biri tüm sunucuyu durdururdu.
- * Async sürüm libuv iş parçacığı havuzunda çalışır.
+ * The asynchronous version of `scrypt` is used: `scryptSync` would block the
+ * event loop, and anyone flooding the login route could stall the whole server.
+ * The async version runs on the libuv thread pool.
  */
 const SCRYPT_PARAMS = { N: 2 ** 16, r: 8, p: 1, maxmem: 128 * 1024 * 1024 };
 const SCRYPT_SALT = "bluejay-login-v1";
 
-// Gerçek parolanın türevi sabit; süreç başına bir kez hesaplanıp saklanıyor.
+// The derivative of the real password is constant; it is computed once per
+// process and kept.
 let expectedKeyPromise: Promise<Buffer> | null = null;
 function expectedPasswordKey(): Promise<Buffer> {
   expectedKeyPromise ??= scryptAsync(password, SCRYPT_SALT, 32, SCRYPT_PARAMS);
@@ -101,13 +104,13 @@ export async function verifyPassword(candidate: string): Promise<boolean> {
     expectedPasswordKey(),
   ]);
 
-  // Her iki türev de 32 bayt; `timingSafeEqual` doğrudan kullanılabilir.
+  // Both derivatives are 32 bytes, so `timingSafeEqual` can be used directly.
   return timingSafeEqual(candidateKey, expectedKey);
 }
 
 /**
- * `base64url(payload).base64url(hmac)` biçiminde imzalı oturum jetonu.
- * Payload yalnızca son kullanma zamanını taşır; kimlik zaten tekil.
+ * A signed session token in the form `base64url(payload).base64url(hmac)`.
+ * The payload only carries the expiry; the identity is singular anyway.
  */
 export function createSessionToken(): { token: string; maxAge: number } {
   const payload = JSON.stringify({

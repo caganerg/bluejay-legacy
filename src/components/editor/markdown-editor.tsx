@@ -62,10 +62,11 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
 
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
-  // Yerel düzenleme durumunu YALNIZCA başka bir not seçildiğinde sıfırla.
-  // `note.title/content/folderId` bağımlılığa eklenirse, kaydetme yanıtı `note`
-  // nesnesini değiştirdiği için bu efekt yeniden çalışıp kullanıcının istek
-  // uçarken yazdığı karakterleri sunucudan dönen sürümle eziyor (kayıp güncelleme).
+  // Reset the local editing state ONLY when a different note is selected.
+  // If `note.title/content/folderId` were added to the dependencies, the save
+  // response would change the `note` object, this effect would re-run, and the
+  // characters the user typed while the request was in flight would be
+  // overwritten by the version coming back from the server (a lost update).
   React.useEffect(() => {
     setTitle(note.title);
     setContent(note.content);
@@ -98,7 +99,7 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
         lastSavedRef.current = { title, content, folderId };
         setSaveStatus("saved");
       } catch (err) {
-        console.error("Kaydetme hatası:", err);
+        console.error("Failed to save:", err);
         setSaveStatus("unsaved");
       }
     }, 800);
@@ -112,13 +113,13 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
     const cursorPos = e.target.selectionStart;
     setContent(val);
 
-    // İmlecin solundaki metinde açık bir [[ var mı?
+    // Is there an open [[ in the text to the left of the cursor?
     const textBeforeCursor = val.slice(0, cursorPos);
     const lastOpenBracket = textBeforeCursor.lastIndexOf("[[");
 
     if (lastOpenBracket !== -1) {
       const textAfterBracket = textBeforeCursor.slice(lastOpenBracket + 2);
-      // Eğer kapanış ]] veya satır sonu yoksa suggestion aktif
+      // If there is no closing ]] and no newline, suggestions are active
       if (!textAfterBracket.includes("]]") && !textAfterBracket.includes("\n")) {
         setIsSuggesting(true);
         setSuggestionQuery(textAfterBracket);
@@ -131,10 +132,10 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
     setIsSuggesting(false);
   };
 
-  // Öneri araması geciktirmeli ve iptal edilebilir olmak zorunda: eskiden her
-  // tuş vuruşu doğrudan bir istek başlatıyordu, yanıtlar sırasız döndüğünde eski
-  // sonuçlar yenilerin üzerine yazılıyor ve hızlı yazan bir kullanıcı tek başına
-  // dakikada 180 isteklik arama limitine çarpabiliyordu.
+  // The suggestion search has to be debounced and cancellable: every keystroke
+  // used to fire a request directly, out-of-order responses let stale results
+  // overwrite fresher ones, and a fast typist could hit the 180-requests-per-
+  // minute search limit on their own.
   React.useEffect(() => {
     if (!isSuggesting) return;
 
@@ -148,7 +149,7 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
         const data = await res.json();
         setSuggestedNotes(data.results || []);
       } catch {
-        // İptal edilen istek ya da ağ hatası: önceki öneriler korunur.
+        // An aborted request or a network error: the previous suggestions stay.
       }
     }, 120);
 
@@ -171,7 +172,7 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
     setIsSuggesting(false);
     setTriggerPos(null);
 
-    // Cursor'ı link sonuna konumlandır
+    // Place the cursor at the end of the link
     setTimeout(() => {
       textarea.focus();
       const newCursorPos = triggerPos + targetTitle.length + 4;
@@ -200,7 +201,7 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
     }
   };
 
-  // Markdown araç çubuğu butonları
+  // Markdown toolbar buttons
   const insertFormatting = (prefix: string, suffix = prefix) => {
     if (!textareaRef.current) return;
     const textarea = textareaRef.current;
@@ -208,7 +209,7 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
     const end = textarea.selectionEnd;
     const selected = content.substring(start, end);
 
-    const replacement = `${prefix}${selected || "metin"}${suffix}`;
+    const replacement = `${prefix}${selected || "text"}${suffix}`;
     const newContent = content.substring(0, start) + replacement + content.substring(end);
     setContent(newContent);
 
@@ -220,7 +221,7 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
 
   const [_isNavigatingWikilink, setIsNavigatingWikilink] = React.useState(false);
 
-  // Wikilink tıklamalarını yakalama (Preview modunda)
+  // Intercept wikilink clicks (in preview mode)
   const handlePreviewClick = async (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
     const link = target.closest("a");
@@ -231,12 +232,13 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
       const rawTargetTitle = decodeURIComponent(href.replace("#wikilink:", "")).trim();
       if (!rawTargetTitle) return;
 
-      // Hedef not zaten vault'ta varsa resolve isteğini beklemeden git.
+      // If the target note is already in the vault, navigate without waiting
+      // for the resolve request.
       const targetSlug = slugify(rawTargetTitle);
       const existing = vaultNotes.find(
         (n) =>
           n.slug === targetSlug ||
-          n.title.toLocaleLowerCase("tr-TR") === rawTargetTitle.toLocaleLowerCase("tr-TR")
+          n.title.toLowerCase() === rawTargetTitle.toLowerCase()
       );
       if (existing) {
         router.push(`/notes/${existing.id}`);
@@ -264,7 +266,7 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
           router.push(`/notes/${data.note.id}`);
         }
       } catch (err) {
-        console.error("Wikilink yönlendirme hatası:", err);
+        console.error("Failed to navigate to the wikilink:", err);
       } finally {
         setIsNavigatingWikilink(false);
       }
@@ -276,9 +278,9 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
 
   return (
     <div className="flex-1 flex flex-col h-screen overflow-hidden bg-[#0a0d16]">
-      {/* Üst Araç Çubuğu */}
+      {/* Top toolbar */}
       <header className="relative h-13 border-b border-slate-800/80 px-6 flex items-center justify-between shrink-0 bg-[#0c101b]/80 backdrop-blur-md">
-        {/* Sol: Klasör Seçici ve Durum */}
+        {/* Left: folder picker and status */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5 text-xs text-slate-400">
             <FolderIcon className="h-3.5 w-3.5 text-slate-500" />
@@ -287,7 +289,7 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
               onChange={(e) => setFolderId(e.target.value || null)}
               className="bg-transparent border-0 text-slate-300 hover:text-white focus:outline-none cursor-pointer text-xs"
             >
-              <option value="" className="bg-slate-900">Klasörsüz</option>
+              <option value="" className="bg-slate-900">No folder</option>
               {flattenFoldersAsTree(folders).map(({ folder, depth }) => (
                 <option key={folder.id} value={folder.id} className="bg-slate-900">
                   {"  ".repeat(depth)}
@@ -299,45 +301,45 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
 
           <span className="text-slate-700">|</span>
 
-          {/* Otomatik Kaydetme Göstergesi */}
+          {/* Auto-save indicator */}
           <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
             {saveStatus === "saving" && (
               <>
                 <Loader2 className="h-3 w-3 animate-spin text-indigo-400" />
-                <span className="text-indigo-400">Kaydediliyor...</span>
+                <span className="text-indigo-400">Saving...</span>
               </>
             )}
             {saveStatus === "saved" && (
               <>
                 <Check className="h-3 w-3 text-emerald-400" />
-                <span className="text-slate-400">Kaydedildi</span>
+                <span className="text-slate-400">Saved</span>
               </>
             )}
             {saveStatus === "unsaved" && (
-              <span className="text-amber-400/80">Kaydedilmemiş değişiklikler</span>
+              <span className="text-amber-400/80">Unsaved changes</span>
             )}
           </div>
         </div>
 
-        {/* Orta: Markdown Format Araçları */}
+        {/* Middle: Markdown formatting tools */}
         <div className="absolute left-1/2 -translate-x-1/2 hidden md:flex items-center gap-1 bg-slate-900/60 p-1 rounded-lg border border-slate-800 shadow-sm">
           <button
             onClick={() => insertFormatting("**")}
-            title="Kalın (Bold)"
+            title="Bold"
             className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"
           >
             <Bold className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={() => insertFormatting("*")}
-            title="İtalik (Italic)"
+            title="Italic"
             className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"
           >
             <Italic className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={() => insertFormatting("`")}
-            title="Satır içi Kod"
+            title="Inline code"
             className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"
           >
             <Code className="h-3.5 w-3.5" />
@@ -345,14 +347,14 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
           <span className="w-px h-3 bg-slate-800 my-auto" />
           <button
             onClick={() => insertFormatting("# ", "")}
-            title="H1 Başlık"
+            title="Heading 1"
             className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"
           >
             <Heading1 className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={() => insertFormatting("## ", "")}
-            title="H2 Başlık"
+            title="Heading 2"
             className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"
           >
             <Heading2 className="h-3.5 w-3.5" />
@@ -360,21 +362,21 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
           <span className="w-px h-3 bg-slate-800 my-auto" />
           <button
             onClick={() => insertFormatting("- ", "")}
-            title="Liste"
+            title="List"
             className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"
           >
             <List className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={() => insertFormatting("- [ ] ", "")}
-            title="Görev Kutusu"
+            title="Task checkbox"
             className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"
           >
             <CheckSquare className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={() => insertFormatting("[[", "]]")}
-            title="Wikilink Ekle [[Not]]"
+            title="Insert wikilink [[Note]]"
             className="p-1.5 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-950/40 rounded transition-colors flex items-center gap-1 font-bold text-xs"
           >
             <Sparkles className="h-3.5 w-3.5" />
@@ -382,54 +384,54 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
           </button>
         </div>
 
-        {/* Sağ: Görünüm Modu Değiştirici */}
+        {/* Right: view mode switcher */}
         <div className="flex items-center gap-1 bg-slate-900/60 p-1 rounded-lg border border-slate-800">
           <button
             onClick={() => setMode("edit")}
-            title="Sadece Düzenle"
+            title="Edit only"
             className={cn(
               "p-1.5 rounded text-xs flex items-center gap-1.5 transition-colors",
               mode === "edit" ? "bg-indigo-600 text-white font-medium shadow-xs" : "text-slate-400 hover:text-slate-200"
             )}
           >
             <Edit3 className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Düzenle</span>
+            <span className="hidden sm:inline">Edit</span>
           </button>
           <button
             onClick={() => setMode("split")}
-            title="İkili Görünüm (Split View)"
+            title="Split view"
             className={cn(
               "p-1.5 rounded text-xs flex items-center gap-1.5 transition-colors",
               mode === "split" ? "bg-indigo-600 text-white font-medium shadow-xs" : "text-slate-400 hover:text-slate-200"
             )}
           >
             <Columns className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">İkili</span>
+            <span className="hidden sm:inline">Split</span>
           </button>
           <button
             onClick={() => setMode("preview")}
-            title="Önizleme"
+            title="Preview"
             className={cn(
               "p-1.5 rounded text-xs flex items-center gap-1.5 transition-colors",
               mode === "preview" ? "bg-indigo-600 text-white font-medium shadow-xs" : "text-slate-400 hover:text-slate-200"
             )}
           >
             <Eye className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Önizle</span>
+            <span className="hidden sm:inline">Preview</span>
           </button>
         </div>
       </header>
 
-      {/* Ana Editör Alanı */}
+      {/* Main editor area */}
       <div className="flex-1 overflow-y-auto px-8 py-6 relative">
         <div className="max-w-5xl mx-auto space-y-6">
-          {/* Not Başlığı */}
+          {/* Note title */}
           <div className="space-y-2">
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="Not Başlığı..."
+              placeholder="Note title..."
               className="w-full text-3xl sm:text-4xl font-extrabold text-white tracking-tight bg-transparent border-0 focus:outline-none placeholder:text-slate-600"
             />
 
@@ -446,9 +448,9 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
             )}
           </div>
 
-          {/* Editör & Önizleme Bölümleri */}
+          {/* Editor & preview panes */}
           <div className={cn("grid gap-8", mode === "split" ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1")}>
-            {/* Markdown Yazma Alanı (Edit) */}
+            {/* Markdown writing area (edit) */}
             {(mode === "edit" || mode === "split") && (
               <div className="relative">
                 <textarea
@@ -456,7 +458,7 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
                   value={content}
                   onChange={handleContentChange}
                   onKeyDown={handleKeyDown}
-                  placeholder="Markdown formatında yazmaya başlayın... Başka bir nota referans vermek için [[ tuşlayın."
+                  placeholder="Start writing in Markdown... Type [[ to reference another note."
                   className="w-full min-h-[500px] bg-transparent resize-none font-mono text-sm leading-relaxed text-slate-200 placeholder:text-slate-600 focus:outline-none selection:bg-indigo-500/30"
                   spellCheck={false}
                 />
@@ -465,8 +467,8 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
                 {isSuggesting && (
                   <div className="absolute left-4 top-20 z-50 w-72 rounded-xl border border-slate-800 bg-slate-900/95 p-1.5 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-100">
                     <div className="px-2 py-1 text-[11px] font-semibold text-slate-400 border-b border-slate-800 flex items-center justify-between">
-                      <span>Not Bağlantısı Seç ([[...]])</span>
-                      <span className="text-[10px] text-indigo-400">↵ Ekle</span>
+                      <span>Pick a note to link ([[...]])</span>
+                      <span className="text-[10px] text-indigo-400">↵ Insert</span>
                     </div>
 
                     <div className="max-h-48 overflow-y-auto py-1 space-y-0.5">
@@ -496,7 +498,7 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
                               : "text-indigo-300 hover:bg-indigo-950/50"
                           )}
                         >
-                          <span className="truncate">+ &quot;{suggestionQuery}&quot; (Yeni Not Olarak)</span>
+                          <span className="truncate">+ &quot;{suggestionQuery}&quot; (as a new note)</span>
                         </div>
                       )}
                     </div>
@@ -505,7 +507,7 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
               </div>
             )}
 
-            {/* Markdown Önizleme Alanı (Preview) */}
+            {/* Markdown preview area */}
             {(mode === "preview" || mode === "split") && (
               <div
                 onClick={handlePreviewClick}
@@ -537,14 +539,14 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
                   </ReactMarkdown>
                 ) : (
                   <div className="text-slate-600 italic py-12 text-center text-sm">
-                    Önizlenecek içerik bulunamadı. Sol tarafa yazmaya başlayın.
+                    Nothing to preview yet. Start writing on the left.
                   </div>
                 )}
               </div>
             )}
           </div>
 
-          {/* Alt Bilgi ve Backlinks Paneli */}
+          {/* Footer and backlinks panel */}
           <BacklinksPanel
             currentNoteTitle={title}
             incomingLinks={note.incomingLinks}
@@ -554,16 +556,16 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
         </div>
       </div>
 
-      {/* Alt Durum Çubuğu */}
+      {/* Bottom status bar */}
       <footer className="h-8 border-t border-slate-800/80 px-6 flex items-center justify-between text-[11px] text-slate-500 shrink-0 bg-[#090d16]">
         <div className="flex items-center gap-4">
-          <span>{wordCount} kelime</span>
-          <span>{content.length} karakter</span>
-          <span>{tags.length} etiket</span>
+          <span>{wordCount} words</span>
+          <span>{content.length} characters</span>
+          <span>{tags.length} tags</span>
         </div>
         <div className="flex items-center gap-2">
-          <span>Wikilink Ayrıştırıcı:</span>
-          <span className="text-indigo-400 font-mono">[[Not Adı]]</span>
+          <span>Wikilink parser:</span>
+          <span className="text-indigo-400 font-mono">[[Note Name]]</span>
         </div>
       </footer>
     </div>

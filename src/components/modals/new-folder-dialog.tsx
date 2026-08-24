@@ -42,7 +42,7 @@ export function NewFolderDialog({ open, onOpenChange, onCreated, parentId }: New
         onCreated();
       }
     } catch (err) {
-      console.error("Klasör oluşturulamadı:", err);
+      console.error("Failed to create the folder:", err);
     } finally {
       setLoading(false);
     }
@@ -54,17 +54,17 @@ export function NewFolderDialog({ open, onOpenChange, onCreated, parentId }: New
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-slate-100">
             <FolderPlus className="h-5 w-5 text-indigo-400" />
-            Yeni Klasör Oluştur
+            Create New Folder
           </DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4 pt-2">
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-slate-300">Klasör Adı</label>
+            <label className="text-xs font-medium text-slate-300">Folder name</label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Örn: Projeler, Kitap Özetleri..."
+              placeholder="e.g. Projects, Book Summaries..."
               autoFocus
               required
             />
@@ -77,10 +77,10 @@ export function NewFolderDialog({ open, onOpenChange, onCreated, parentId }: New
               onClick={() => handleOpenChange(false)}
               disabled={loading}
             >
-              İptal
+              Cancel
             </Button>
             <Button type="submit" disabled={!name.trim() || loading}>
-              {loading ? "Oluşturuluyor..." : "Klasör Oluştur"}
+              {loading ? "Creating..." : "Create Folder"}
             </Button>
           </DialogFooter>
         </form>

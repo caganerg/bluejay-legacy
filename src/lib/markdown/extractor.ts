@@ -7,8 +7,8 @@ export interface ExtractedLink {
 }
 
 /**
- * `[[Başlık|Takma Ad]]` içeriğini ilk `|` karakterinden böler. Ayırıcıdan
- * sonraki her şey takma ada aittir; başlıkta `|` kullanılamaz.
+ * Splits the contents of `[[Title|Alias]]` at the first `|`. Everything after
+ * the separator belongs to the alias; a title cannot contain `|`.
  */
 function splitTitleAndAlias(rawContent: string): { targetTitle: string; alias?: string } {
   const separator = rawContent.indexOf("|");
@@ -21,36 +21,38 @@ function splitTitleAndAlias(rawContent: string): { targetTitle: string; alias?: 
 }
 
 /**
- * Bir metni markdown link etiketi (`[...]`) içine güvenle gömülebilir hale getirir.
+ * Makes a piece of text safe to embed inside a markdown link label (`[...]`).
  *
- * Takma ad daha önce ham olarak yazılıyordu; bu yüzden link söz diziminden kaçıp
- * keyfi markdown enjekte edebiliyordu — örneğin `[[Foo|x](başka-adres)]]`
- * saldırgan hedefli bir bağlantıya dönüşüyordu. (react-markdown'ın varsayılan
- * `urlTransform`'u `javascript:`/`data:` şemalarını temizlediği için bu bir XSS
- * değildi, ama `rehype-raw` eklendiği anda öyle olurdu.)
+ * The alias used to be written out raw, which let it escape the link syntax and
+ * inject arbitrary markdown — for example `[[Foo|x](another-address)]]` turned
+ * into a link with an attacker-chosen target. (It was not XSS, because
+ * react-markdown's default `urlTransform` strips `javascript:`/`data:` schemes,
+ * but it would become XSS the moment `rehype-raw` was added.)
  */
 function escapeMarkdownText(text: string): string {
   return text.replace(/[\\[\]!*_`~<>]/g, (ch) => `\\${ch}`);
 }
 
 /**
- * Wikilink deseni: `[[Not Adı]]` veya `[[Not Adı|Görünen İsim]]`.
+ * Wikilink pattern: `[[Note Name]]` or `[[Note Name|Display Name]]`.
  *
- * Gövde `[`, `]` ve satır sonu içeremez, uzunluğu da sınırlıdır. Bu iki kısıt
- * güvenlik açısından şart: eski desen (`/\[\[(.*?)\]\]/g`) kapanışı olmayan her
- * `[[` için satır sonuna kadar tarıyordu, yani maliyet metin uzunluğuyla KARE
- * büyüyordu. `MAX_CONTENT_LENGTH` (1 MB) sınırındaki tek bir not `/api/graph`,
- * `/api/notes/[id]` ve kayıt sırasındaki bağlantı senkronizasyonunu dakikalarca
- * bloke edebiliyordu — üstelik içerik saklandığı için kalıcı olarak. Ölçüm:
- * 160 KB'lık kötücül girdide eski desen 32 s, bu desen 0,5 ms sürüyor.
+ * The body may not contain `[`, `]` or a newline, and its length is capped.
+ * Both restrictions are required for security: the old pattern
+ * (`/\[\[(.*?)\]\]/g`) scanned to the end of the line for every unclosed `[[`,
+ * so the cost grew QUADRATICALLY with the length of the text. A single note at
+ * the `MAX_CONTENT_LENGTH` limit (1 MB) could block `/api/graph`,
+ * `/api/notes/[id]` and the link synchronisation on save for minutes — and
+ * permanently, since the content is stored. Measured: on 160 KB of malicious
+ * input the old pattern took 32 s, this one takes 0.5 ms.
  *
- * Gövdedeki `[`/`]` yasağı normal kullanımı kısıtlamıyor; başlıkta zaten köşeli
- * parantez kullanılamıyordu (ilk `]]` eşleşmeyi bitiriyordu).
+ * Banning `[`/`]` in the body does not restrict normal usage; square brackets
+ * were already unusable in a title (the first `]]` ended the match).
  */
 const WIKILINK_PATTERN = /\[\[([^[\]\n]{0,255})\]\]/g;
 
 /**
- * [[Not Adı]] veya [[Not Adı|Görünen İsim]] formatındaki wikilinkleri metinden ayıklar.
+ * Extracts wikilinks in the form [[Note Name]] or [[Note Name|Display Name]]
+ * from a piece of text.
  */
 export function extractWikiLinks(markdown: string): ExtractedLink[] {
   if (!markdown) return [];
@@ -80,12 +82,12 @@ export function extractWikiLinks(markdown: string): ExtractedLink[] {
 }
 
 /**
- * Metin içindeki #etiket leri ayıklar (kod blokları ve url'ler dışındaki)
+ * Extracts #tags from a piece of text (excluding those in code blocks and URLs).
  */
 export function extractTags(markdown: string): string[] {
   if (!markdown) return [];
 
-  // Kod bloklarını geçici olarak temizle
+  // Temporarily strip code blocks
   const cleanMarkdown = markdown
     .replace(/```[\s\S]*?```/g, "")
     .replace(/`.*?`/g, "");
@@ -96,7 +98,7 @@ export function extractTags(markdown: string): string[] {
   let match;
   while ((match = tagRegex.exec(cleanMarkdown)) !== null) {
     const tag = match[1].trim();
-    if (tag && !/^\d+$/.test(tag)) { // Sadece sayıdan oluşan başlık #1 leri hariç tut
+    if (tag && !/^\d+$/.test(tag)) { // Exclude purely numeric headings such as #1
       tags.add(tag.toLowerCase());
     }
   }
@@ -105,15 +107,17 @@ export function extractTags(markdown: string): string[] {
 }
 
 /**
- * Markdown içeriğindeki [[Wikilink]] leri tıklanabilir özel elemente dönüştürmek için render yardımcısı
+ * Render helper that turns [[Wikilink]]s in markdown content into a clickable
+ * custom element.
  */
 export function transformWikiLinksForDisplay(markdown: string): string {
   if (!markdown) return "";
 
   // [[Note Title|Alias]] -> [Alias](#wikilink:encodedTitle)
   // [[Note Title]] -> [Note Title](#wikilink:encodedTitle)
-  // `extractWikiLinks` ile aynı desen: burada da kuadratik geri izleme olmamalı,
-  // çünkü bu fonksiyon önizlemede her tuş vuruşunda çalışıyor.
+  // The same pattern as `extractWikiLinks`: there must be no quadratic
+  // backtracking here either, because this function runs on every keystroke in
+  // the preview.
   return markdown.replace(new RegExp(WIKILINK_PATTERN.source, "g"), (whole, match: string) => {
     const { targetTitle, alias } = splitTitleAndAlias(match);
     if (!targetTitle) return whole;
