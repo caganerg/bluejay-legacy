@@ -3,7 +3,17 @@ import { getAllNotes, createNote } from "@/lib/notes-service";
 import { createNoteSchema } from "@/lib/validations/note";
 import { checkRateLimit } from "@/lib/rate-limit";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  // Kasanın tamamını (bütün notların tam içeriğiyle) serileştiren rota;
+  // limitsiz bırakıldığında ucuz bir hizmet dışı bırakma vektörü.
+  const rateLimit = checkRateLimit(req, 240, 60 * 1000);
+  if (!rateLimit.success) {
+    return NextResponse.json(
+      { error: "Çok fazla istek gönderildi. Lütfen bekleyin." },
+      { status: 429 }
+    );
+  }
+
   try {
     const notes = await getAllNotes();
     return NextResponse.json({ notes });

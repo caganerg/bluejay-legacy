@@ -7,6 +7,16 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Bellek içi modda bu rota geri bağlantıları hesaplamak için kasadaki bütün
+  // notların içeriğini ayrıştırıyor; limitsiz kalan en pahalı okuma rotasıydı.
+  const rateLimit = checkRateLimit(req, 240, 60 * 1000);
+  if (!rateLimit.success) {
+    return NextResponse.json(
+      { error: "Çok fazla istek gönderildi. Lütfen bekleyin." },
+      { status: 429 }
+    );
+  }
+
   try {
     const { id } = await params;
     if (!id || typeof id !== "string") {

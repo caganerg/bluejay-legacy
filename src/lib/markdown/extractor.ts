@@ -34,13 +34,28 @@ function escapeMarkdownText(text: string): string {
 }
 
 /**
+ * Wikilink deseni: `[[Not Adı]]` veya `[[Not Adı|Görünen İsim]]`.
+ *
+ * Gövde `[`, `]` ve satır sonu içeremez, uzunluğu da sınırlıdır. Bu iki kısıt
+ * güvenlik açısından şart: eski desen (`/\[\[(.*?)\]\]/g`) kapanışı olmayan her
+ * `[[` için satır sonuna kadar tarıyordu, yani maliyet metin uzunluğuyla KARE
+ * büyüyordu. `MAX_CONTENT_LENGTH` (1 MB) sınırındaki tek bir not `/api/graph`,
+ * `/api/notes/[id]` ve kayıt sırasındaki bağlantı senkronizasyonunu dakikalarca
+ * bloke edebiliyordu — üstelik içerik saklandığı için kalıcı olarak. Ölçüm:
+ * 160 KB'lık kötücül girdide eski desen 32 s, bu desen 0,5 ms sürüyor.
+ *
+ * Gövdedeki `[`/`]` yasağı normal kullanımı kısıtlamıyor; başlıkta zaten köşeli
+ * parantez kullanılamıyordu (ilk `]]` eşleşmeyi bitiriyordu).
+ */
+const WIKILINK_PATTERN = /\[\[([^[\]\n]{0,255})\]\]/g;
+
+/**
  * [[Not Adı]] veya [[Not Adı|Görünen İsim]] formatındaki wikilinkleri metinden ayıklar.
  */
 export function extractWikiLinks(markdown: string): ExtractedLink[] {
   if (!markdown) return [];
-  
-  // [[Note Name]] veya [[Note Name|Alias]]
-  const regex = /\[\[(.*?)\]\]/g;
+
+  const regex = new RegExp(WIKILINK_PATTERN.source, "g");
   const links: ExtractedLink[] = [];
   const seenTitles = new Set<string>();
 
@@ -97,7 +112,9 @@ export function transformWikiLinksForDisplay(markdown: string): string {
 
   // [[Note Title|Alias]] -> [Alias](#wikilink:encodedTitle)
   // [[Note Title]] -> [Note Title](#wikilink:encodedTitle)
-  return markdown.replace(/\[\[(.*?)\]\]/g, (whole, match: string) => {
+  // `extractWikiLinks` ile aynı desen: burada da kuadratik geri izleme olmamalı,
+  // çünkü bu fonksiyon önizlemede her tuş vuruşunda çalışıyor.
+  return markdown.replace(new RegExp(WIKILINK_PATTERN.source, "g"), (whole, match: string) => {
     const { targetTitle, alias } = splitTitleAndAlias(match);
     if (!targetTitle) return whole;
 
