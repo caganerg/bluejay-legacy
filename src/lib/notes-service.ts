@@ -99,6 +99,17 @@ function isUniqueViolation(error: unknown): boolean {
   );
 }
 
+// Prisma'nın serileştirme çakışması / kilitlenme kodu. `SERIALIZABLE` seviyesinde
+// çalışan bir transaction eşzamanlı bir yazmayla çakışırsa bununla düşer ve
+// yeniden denenmesi beklenir.
+function isSerializationFailure(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: string }).code === "P2034"
+  );
+}
+
 export async function getAllNotes(userId = DEFAULT_USER_ID): Promise<Note[]> {
   if (USE_DATABASE) {
     const notes = await prisma.note.findMany({
@@ -565,6 +576,14 @@ export async function createFolder(
 
 // Bir klasörün (id) verilen hedef (targetParentId) altına taşınmasının
 // döngü oluşturup oluşturmayacağını kontrol eder (kendi alt klasörüne taşınamaz).
+//
+// Yürüyüş `visited` ile sınırlanmak ZORUNDA: veride zaten bir döngü varsa
+// (A.parent=B, B.parent=A) sınırsız `while` sonsuza kadar dönüyor ve isteği
+// işleyen süreci kilitliyordu. Böyle bir veri hâli mümkün, çünkü bu kontrol
+// oku-sonra-yaz; aşağıdaki çağrı noktası artık ikisini tek transaction'a alıyor
+// ama diskte önceden oluşmuş bozuk bir hiyerarşiye de dayanıklı olmalıyız.
+// Mevcut bir döngüye girmek yeni bir döngü kurmakla aynı sonucu doğurduğu için
+// bu durumda `true` (taşımayı reddet) dönüyoruz.
 function wouldCreateCycle(
   allFolders: { id: string; parentId?: string | null }[],
   id: string,
@@ -573,11 +592,16 @@ function wouldCreateCycle(
   if (!targetParentId) return false;
   if (targetParentId === id) return true;
 
-  let current = allFolders.find((f) => f.id === targetParentId);
+  const byId = new Map(allFolders.map((f) => [f.id, f]));
+  const visited = new Set<string>();
+
+  let current = byId.get(targetParentId);
   while (current) {
     if (current.id === id) return true;
+    if (visited.has(current.id)) return true; // veride hâlihazırda döngü var
+    visited.add(current.id);
     if (!current.parentId) break;
-    current = allFolders.find((f) => f.id === current!.parentId);
+    current = byId.get(current.parentId);
   }
   return false;
 }
@@ -588,32 +612,50 @@ export async function updateFolder(
   userId = DEFAULT_USER_ID
 ): Promise<Folder | null | "cycle"> {
   if (USE_DATABASE) {
-    if (data.parentId !== undefined) {
-      const allFolders = await prisma.folder.findMany({
-        where: { userId },
-        select: { id: true, parentId: true },
-      });
-      if (wouldCreateCycle(allFolders, id, data.parentId)) {
-        return "cycle";
-      }
-    }
-
     const updateData: Record<string, unknown> = { updatedAt: new Date() };
     if (data.name !== undefined) updateData.name = data.name.trim();
     if (data.parentId !== undefined) updateData.parentId = data.parentId;
 
-    // `userId` kapsamı zorunlu (bkz. updateNote).
-    const existing = await prisma.folder.findFirst({
-      where: { id, userId },
-      select: { id: true },
-    });
-    if (!existing) return null;
+    // Döngü kontrolü ile yazma TEK ve SERİLEŞTİRİLEBİLİR bir transaction'da
+    // olmak zorunda. Eskiden ikisi arasında `await` vardı: eşzamanlı iki taşıma
+    // isteği (A'yı B'ye, B'yi A'ya) ikisi de döngüsüz bir anlık görüntü okuyup
+    // ikisi de yazabiliyor, sonuçta veritabanında gerçek bir döngü kalıyordu.
+    // Bu tam olarak "write skew" anomalisi; Postgres'in varsayılan READ
+    // COMMITTED seviyesi bunu engellemez, SERIALIZABLE engeller.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await prisma.$transaction(
+          async (tx) => {
+            // `userId` kapsamı zorunlu (bkz. updateNote).
+            const existing = await tx.folder.findFirst({
+              where: { id, userId },
+              select: { id: true },
+            });
+            if (!existing) return null;
 
-    const updated = await prisma.folder.update({
-      where: { id, userId },
-      data: updateData,
-    });
-    return updated as unknown as Folder;
+            if (data.parentId !== undefined) {
+              const allFolders = await tx.folder.findMany({
+                where: { userId },
+                select: { id: true, parentId: true },
+              });
+              if (wouldCreateCycle(allFolders, id, data.parentId)) {
+                return "cycle";
+              }
+            }
+
+            const updated = await tx.folder.update({
+              where: { id, userId },
+              data: updateData,
+            });
+            return updated as unknown as Folder;
+          },
+          { isolationLevel: "Serializable" }
+        );
+      } catch (error) {
+        // P2034: serileştirme çakışması / kilitlenme — tekrar denenmeli.
+        if (!isSerializationFailure(error) || attempt === 2) throw error;
+      }
+    }
   }
 
   const folder = memoryStore.folders.find((f) => f.id === id && f.userId === userId);

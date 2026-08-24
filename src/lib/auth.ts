@@ -1,4 +1,13 @@
-import { createHmac, timingSafeEqual, randomBytes, createHash } from "node:crypto";
+import { createHmac, timingSafeEqual, randomBytes, createHash, scrypt } from "node:crypto";
+import { promisify } from "node:util";
+import { currentSessionEpoch } from "./session-store";
+
+const scryptAsync = promisify(scrypt) as (
+  password: string,
+  salt: string,
+  keylen: number,
+  options: { N: number; r: number; p: number; maxmem: number }
+) => Promise<Buffer>;
 
 /**
  * Tek kullanıcılı şifre koruması.
@@ -33,9 +42,15 @@ const sessionMaxAge = Number.parseInt(process.env.SESSION_MAX_AGE ?? "", 10) || 
 
 function signingKey(): Buffer {
   const explicit = process.env.AUTH_SECRET;
-  if (explicit) return Buffer.from(explicit, "utf8");
-  // Parolanın kendisini anahtar olarak kullanmak yerine türevini kullan.
-  return createHash("sha256").update(`bluejay-session:${password}`).digest();
+  const base = explicit
+    ? Buffer.from(explicit, "utf8")
+    : // Parolanın kendisini anahtar olarak kullanmak yerine türevini kullan.
+      createHash("sha256").update(`bluejay-session:${password}`).digest();
+
+  // Oturum epoch'u anahtara karışıyor; böylece epoch döndüğünde (çıkış) daha
+  // önce verilmiş bütün jetonların imzası tek seferde geçersiz olur. Bu olmadan
+  // jetonlar sunucu tarafında hiçbir şekilde iptal edilemiyordu.
+  return createHmac("sha256", base).update(currentSessionEpoch()).digest();
 }
 
 function sign(payload: string): string {
@@ -51,9 +66,43 @@ function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(ha, hb);
 }
 
-export function verifyPassword(candidate: string): boolean {
+/**
+ * Parola doğrulaması bilerek PAHALI.
+ *
+ * Eskiden tek bir SHA-256 karşılaştırmasıydı; deneme maliyeti sıfıra yakın
+ * olduğu için kaba kuvvete karşı tek savunma giriş rotasındaki dakikalık
+ * sayaçtı. O sayaç istemciyi ayırt edemediğinden (bkz. rate-limit.ts) küresel
+ * bir kovaya dönüşüyordu: dakikada 10 yanlış denemeyle isteyen herkes kasanın
+ * sahibini süresiz olarak dışarıda bırakabiliyordu.
+ *
+ * Çözüm sayacı sertleştirmek değil, denemenin kendisini pahalılaştırmak: scrypt
+ * ile deneme başına ~139 ms iş. Böylece kilitlemeye gerek kalmıyor ve sahibin
+ * doğru parolası hiçbir zaman reddedilmiyor.
+ *
+ * `scrypt`in eşzamanlı (async) sürümü kullanılıyor: `scryptSync` olay döngüsünü
+ * bloke eder ve giriş rotasını sel altında bırakan biri tüm sunucuyu durdururdu.
+ * Async sürüm libuv iş parçacığı havuzunda çalışır.
+ */
+const SCRYPT_PARAMS = { N: 2 ** 16, r: 8, p: 1, maxmem: 128 * 1024 * 1024 };
+const SCRYPT_SALT = "bluejay-login-v1";
+
+// Gerçek parolanın türevi sabit; süreç başına bir kez hesaplanıp saklanıyor.
+let expectedKeyPromise: Promise<Buffer> | null = null;
+function expectedPasswordKey(): Promise<Buffer> {
+  expectedKeyPromise ??= scryptAsync(password, SCRYPT_SALT, 32, SCRYPT_PARAMS);
+  return expectedKeyPromise;
+}
+
+export async function verifyPassword(candidate: string): Promise<boolean> {
   if (!AUTH_ENABLED) return false;
-  return safeEqual(candidate, password);
+
+  const [candidateKey, expectedKey] = await Promise.all([
+    scryptAsync(candidate, SCRYPT_SALT, 32, SCRYPT_PARAMS),
+    expectedPasswordKey(),
+  ]);
+
+  // Her iki türev de 32 bayt; `timingSafeEqual` doğrudan kullanılabilir.
+  return timingSafeEqual(candidateKey, expectedKey);
 }
 
 /**

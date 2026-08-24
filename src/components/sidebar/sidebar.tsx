@@ -74,17 +74,25 @@ export function Sidebar({
   };
 
   const handleLogout = async () => {
+    // Kilitleme başarısızsa giriş ekranına gitmek yanıltıcı olur: oturum hâlâ
+    // açıktır. Yalnızca sunucu oturumu gerçekten geçersiz kıldıysa yönlendir.
     try {
-      await fetch("/api/auth/logout", {
+      const res = await fetch("/api/auth/logout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
+      if (!res.ok) {
+        await reportFailure(res, "Kasa kilitlenemedi.");
+        return;
+      }
     } catch (err) {
       console.error("Çıkış yapılamadı:", err);
-    } finally {
-      router.replace("/login");
-      router.refresh();
+      alert("Kasa kilitlenemedi: sunucuya ulaşılamadı.");
+      return;
     }
+
+    router.replace("/login");
+    router.refresh();
   };
 
   const handleDeleteNote = async (e: React.MouseEvent, noteId: string) => {
@@ -196,10 +204,15 @@ export function Sidebar({
     const folder = folders.find((f) => f.id === folderId);
     if (folder && (folder.parentId || null) === parentId) return;
 
-    // Bir klasör kendi alt klasörünün içine taşınamaz (istemci tarafı ön kontrol)
+    // Bir klasör kendi alt klasörünün içine taşınamaz (istemci tarafı ön kontrol).
+    // Sunucudaki `wouldCreateCycle` gibi burada da yürüyüş `seen` ile sınırlı:
+    // veri bozulup bir döngü içerirse sınırsız `while` sekmeyi kilitliyordu.
+    const seen = new Set<string>();
     let cursor = parentId;
     while (cursor) {
       if (cursor === folderId) return;
+      if (seen.has(cursor)) return; // veride hâlihazırda döngü var: taşımayı reddet
+      seen.add(cursor);
       const cursorFolder = folders.find((f) => f.id === cursor);
       cursor = cursorFolder?.parentId || null;
     }

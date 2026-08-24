@@ -15,6 +15,9 @@
 # debug
 bun-debug.log*
 
+# oturum epoch'u gibi çalışma zamanı durumu (src/lib/session-store.ts)
+/.bluejay/
+
 # local env files
 .env*.local
 .env
