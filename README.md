@@ -111,8 +111,8 @@ Link your notes together with `[[wiki-links]]`, visualize them in a live D3-powe
 
 ### 2. Clone the Repository
 ```bash
-git clone https://github.com/caganerg/bluejay.git
-cd bluejay
+git clone https://github.com/caganerg/bluejay-legacy.git
+cd bluejay-legacy
 ```
 
 ### 3. Install Dependencies
@@ -171,11 +171,11 @@ bun run dev
 Head to [http://localhost:3000](http://localhost:3000) in your browser and start using Bluejay!
 
 If `BLUEJAY_PASSWORD` is set you'll be asked for it once; the session then lasts
-seven days, and **Kilitle** in the sidebar footer ends it.
+seven days, and **Lock** in the sidebar footer ends it.
 
 ### Locking the vault
 
-The **Kilitle** button in the sidebar footer drops the session cookie and sends
+The **Lock** button in the sidebar footer drops the session cookie and sends
 you back to the unlock screen. It only appears when `BLUEJAY_PASSWORD` is set —
 without a password there is nothing to unlock the vault with, so locking would
 leave you staring at a login form that rejects every attempt. For the same

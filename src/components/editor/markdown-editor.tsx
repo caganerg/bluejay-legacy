@@ -435,7 +435,7 @@ export function MarkdownEditor({ note, folders, onSave, onRefreshVault }: Markdo
               className="w-full text-3xl sm:text-4xl font-extrabold text-white tracking-tight bg-transparent border-0 focus:outline-none placeholder:text-slate-600"
             />
 
-            {/* Etiketler (Varsa) */}
+            {/* Tags (if any) */}
             {tags.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5 pt-1">
                 {tags.map((t) => (
