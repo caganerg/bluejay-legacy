@@ -1,3 +1,11 @@
+> [!IMPORTANT]
+> **This project is no longer maintained.**
+>
+> Development has moved to [**Bluejay**](https://github.com/caganerg/bluejay) — a new,
+> more minimal Markdown editor that runs natively on your system instead of in the browser.
+> This repository is kept as a legacy archive for reference only; it receives no further
+> features, fixes, or security updates.
+
 # 🐦 Bluejay
 
 <div align="center">
